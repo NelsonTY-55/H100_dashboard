@@ -115,7 +115,9 @@ else:
 # 全域變數暫存模式
 current_mode = {'mode': 'idle'}
 
-# 初始化設定管理器
+
+
+# 初始化設定管理器,111test
 config_manager = ConfigManager()
 
 # 初始化設備設定管理器
