@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>主機連接設定 - UART 資料監控系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+        }
+        .config-card {
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-top: 2rem;
+        }
+        .btn-control {
+            border-radius: 25px;
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        .btn-control:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        }
+        .connection-test-result {
+            display: none;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- 標題區域 -->
+    <div class="hero-section">
+        <div class="container">
+            <div class="row">
+                <div class="col-12">
+                    <div class="d-flex align-items-center">
+                        <a href="/" class="btn btn-outline-light me-3">
+                            <i class="fas fa-arrow-left"></i>
+                        </a>
+                        <div>
+                            <h1 class="display-5 fw-bold mb-2">
+                                <i class="fas fa-server me-3"></i>
+                                主機連接設定
+                            </h1>
+                            <p class="lead mb-0">設定目標主機的連接參數和通訊協定</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主要內容區域 -->
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="config-card">
+                    <div class="card-header bg-primary text-white">
+                        <h4 class="mb-0">
+                            <i class="fas fa-network-wired me-2"></i>
+                            主機連接設定
+                        </h4>
+                    </div>
+                    <div class="card-body">
+                        <form id="hostConfigForm">
+                            <!-- 基本連接設定 -->
+                            <div class="row mb-4">
+                                <div class="col-12">
+                                    <h5 class="text-primary">
+                                        <i class="fas fa-cog me-2"></i>基本連接設定
+                                    </h5>
+                                    <hr>
+                                </div>
+                                
+                                <div class="col-md-8 mb-3">
+                                    <label for="targetHost" class="form-label">目標主機地址 *</label>
+                                    <input type="text" class="form-control" id="targetHost" 
+                                           value="{{ host_settings.target_host }}" 
+                                           placeholder="例如: 192.168.1.100 或 example.com" required>
+                                    <div class="form-text">可以是IP地址或域名</div>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="targetPort" class="form-label">端口 *</label>
+                                    <input type="number" class="form-control" id="targetPort" 
+                                           value="{{ host_settings.target_port }}" 
+                                           min="1" max="65535" required>
+                                    <div class="form-text">1-65535</div>
+                                </div>
+                            </div>
+
+                            <!-- 進階設定 -->
+                            <div class="row mb-4">
+                                <div class="col-12">
+                                    <h5 class="text-primary">
+                                        <i class="fas fa-sliders-h me-2"></i>進階設定
+                                    </h5>
+                                    <hr>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="protocol" class="form-label">通訊協定</label>
+                                    <select class="form-select" id="protocol">
+                                        <option value="HTTP" {{ 'selected' if host_settings.protocol == 'HTTP' else '' }}>HTTP</option>
+                                        <option value="HTTPS" {{ 'selected' if host_settings.protocol == 'HTTPS' else '' }}>HTTPS</option>
+                                        <option value="TCP" {{ 'selected' if host_settings.protocol == 'TCP' else '' }}>TCP</option>
+                                    </select>
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="connectionTimeout" class="form-label">連接超時（秒）</label>
+                                    <input type="number" class="form-control" id="connectionTimeout" 
+                                           value="{{ host_settings.connection_timeout }}" 
+                                           min="1" max="60">
+                                </div>
+                                
+                                <div class="col-md-4 mb-3">
+                                    <label for="retryAttempts" class="form-label">重試次數</label>
+                                    <input type="number" class="form-control" id="retryAttempts" 
+                                           value="{{ host_settings.retry_attempts }}" 
+                                           min="0" max="10">
+                                </div>
+                            </div>
+
+                            <!-- 連接測試 -->
+                            <div class="row mb-4">
+                                <div class="col-12">
+                                    <h5 class="text-primary">
+                                        <i class="fas fa-vial me-2"></i>連接測試
+                                    </h5>
+                                    <hr>
+                                    <p class="text-muted">在儲存設定前，建議先測試連接是否正常</p>
+                                    
+                                    <button type="button" class="btn btn-outline-info btn-control" onclick="testConnection()">
+                                        <i class="fas fa-play me-2"></i>測試連接
+                                    </button>
+                                    
+                                    <div id="connectionTestResult" class="connection-test-result">
+                                        <div class="alert" role="alert" id="testResultAlert">
+                                            <!-- 測試結果將顯示在這裡 -->
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 操作按鈕 -->
+                            <div class="row">
+                                <div class="col-12">
+                                    <hr>
+                                    <div class="d-flex gap-2 justify-content-end">
+                                        <a href="/" class="btn btn-secondary btn-control">
+                                            <i class="fas fa-times me-2"></i>取消
+                                        </a>
+                                        <button type="button" class="btn btn-warning btn-control" onclick="resetForm()">
+                                            <i class="fas fa-undo me-2"></i>重置
+                                        </button>
+                                        <button type="submit" class="btn btn-success btn-control">
+                                            <i class="fas fa-save me-2"></i>儲存設定
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 表單提交處理
+        document.getElementById('hostConfigForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveHostConfig();
+        });
+
+        function saveHostConfig() {
+            const formData = {
+                target_host: document.getElementById('targetHost').value.trim(),
+                target_port: document.getElementById('targetPort').value,
+                protocol: document.getElementById('protocol').value,
+                connection_timeout: document.getElementById('connectionTimeout').value,
+                retry_attempts: document.getElementById('retryAttempts').value
+            };
+
+            // 驗證表單
+            if (!formData.target_host) {
+                showAlert('請輸入目標主機地址', 'danger');
+                return;
+            }
+
+            if (!formData.target_port || formData.target_port < 1 || formData.target_port > 65535) {
+                showAlert('請輸入有效的端口號（1-65535）', 'danger');
+                return;
+            }
+
+            const submitBtn = document.querySelector('button[type="submit"]');
+            const originalText = submitBtn.innerHTML;
+            
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>儲存中...';
+            submitBtn.disabled = true;
+
+            fetch('/api/host/save-config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(data.message, 'success');
+                    // 可選：延遲後返回主頁
+                    setTimeout(() => {
+                        window.location.href = '/?updated=host';
+                    }, 1500);
+                } else {
+                    showAlert(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('儲存設定時發生錯誤: ' + error.message, 'danger');
+            })
+            .finally(() => {
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            });
+        }
+
+        function testConnection() {
+            const host = document.getElementById('targetHost').value.trim();
+            const port = document.getElementById('targetPort').value;
+            const protocol = document.getElementById('protocol').value;
+            const timeout = document.getElementById('connectionTimeout').value;
+
+            if (!host || !port) {
+                showAlert('請先填寫主機地址和端口', 'warning');
+                return;
+            }
+
+            const testBtn = event.target;
+            const originalText = testBtn.innerHTML;
+            
+            testBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>測試中...';
+            testBtn.disabled = true;
+
+            fetch('/api/host/test-connection', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    host: host,
+                    port: parseInt(port),
+                    protocol: protocol,
+                    timeout: parseInt(timeout)
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const resultDiv = document.getElementById('connectionTestResult');
+                const alertDiv = document.getElementById('testResultAlert');
+                
+                if (data.success) {
+                    alertDiv.className = 'alert alert-success';
+                    alertDiv.innerHTML = `
+                        <i class="fas fa-check-circle me-2"></i>
+                        <strong>連接成功!</strong><br>
+                        ${data.message}<br>
+                        <small class="text-muted">測試時間: ${data.connection_info.tested_at}</small>
+                    `;
+                } else {
+                    alertDiv.className = 'alert alert-danger';
+                    alertDiv.innerHTML = `
+                        <i class="fas fa-times-circle me-2"></i>
+                        <strong>連接失敗!</strong><br>
+                        ${data.message}
+                    `;
+                }
+                
+                resultDiv.style.display = 'block';
+            })
+            .catch(error => {
+                const resultDiv = document.getElementById('connectionTestResult');
+                const alertDiv = document.getElementById('testResultAlert');
+                
+                alertDiv.className = 'alert alert-danger';
+                alertDiv.innerHTML = `
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>測試過程發生錯誤!</strong><br>
+                    ${error.message}
+                `;
+                
+                resultDiv.style.display = 'block';
+            })
+            .finally(() => {
+                testBtn.innerHTML = originalText;
+                testBtn.disabled = false;
+            });
+        }
+
+        function resetForm() {
+            if (confirm('確定要重置所有設定嗎？')) {
+                document.getElementById('hostConfigForm').reset();
+                document.getElementById('connectionTestResult').style.display = 'none';
+                showAlert('表單已重置', 'info');
+            }
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+            
+            // 3秒後自動移除
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 3000);
+        }
+    </script>
+</body>
+</html>

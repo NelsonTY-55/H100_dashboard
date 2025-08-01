@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ protocol }} 設定</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .form-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+        }
+        .field-group {
+            margin-bottom: 1.5rem;
+        }
+        .field-label {
+            font-weight: 600;
+            color: #495057;
+            margin-bottom: 0.5rem;
+        }
+        .field-required {
+            color: #dc3545;
+        }
+        .form-control:focus {
+            border-color: #007bff;
+            box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        }
+        .error-message {
+            color: #dc3545;
+            font-size: 0.875rem;
+            margin-top: 0.25rem;
+        }
+        .protocol-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            margin-bottom: 2rem;
+        }
+        .btn-save {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            border: none;
+            padding: 0.75rem 2rem;
+        }
+        .btn-save:hover {
+            background: linear-gradient(135deg, #218838 0%, #1ea085 100%);
+        }
+        .loading-spinner {
+            display: none;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <!-- 協定標題 -->
+                <div class="protocol-header text-center">
+                    <h1 class="display-5 mb-3">
+                        <i class="fas fa-cog me-3"></i>
+                        {{ protocol }} 設定
+                    </h1>
+                    <p class="lead mb-0">{{ description }}</p>
+                </div>
+
+                <!-- 設定表單 -->
+                <form id="protocolConfigForm" class="form-section">
+                    <div class="row">
+                        {% for field_name, field_config in field_info.items() %}
+                        <div class="col-md-6">
+                            <div class="field-group">
+                                <label class="field-label">
+                                    {{ field_config.label }}
+                                    {% if field_config.required %}
+                                    <span class="field-required">*</span>
+                                    {% endif %}
+                                </label>
+                                
+                                {% if field_name == 'com_port' %}
+                                <input type="text" 
+                                       class="form-control" 
+                                       name="com_port"
+                                       value="{{ current_config.get('com_port', '') }}"
+                                       placeholder="{{ field_config.placeholder }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% elif field_name == 'baud_rate' %}
+                                <input type="number" 
+                                       class="form-control" 
+                                       name="baud_rate"
+                                       value="{{ current_config.get('baud_rate', field_config.default) }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% elif field_config.type == 'text' %}
+                                <input type="text" 
+                                       class="form-control" 
+                                       name="{{ field_name }}"
+                                       value="{{ current_config.get(field_name, '') }}"
+                                       placeholder="{{ field_config.placeholder }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% elif field_config.type == 'password' %}
+                                <input type="password" 
+                                       class="form-control" 
+                                       name="{{ field_name }}"
+                                       value="{{ current_config.get(field_name, '') }}"
+                                       placeholder="{{ field_config.placeholder }}"
+                                       {% if field_config.required %}required{% endif %}>
+                                {% elif field_config.type == 'number' %}
+                                <input type="number" 
+                                       class="form-control" 
+                                       name="{{ field_name }}"
+                                       value="{{ current_config.get(field_name, field_config.default) }}"
+                                       {% if field_config.min %}min="{{ field_config.min }}"{% endif %}
+                                       {% if field_config.max %}max="{{ field_config.max }}"{% endif %}
+                                       {% if field_config.required %}required{% endif %}>
+                                {% elif field_config.type == 'select' %}
+                                <select class="form-select" 
+                                        name="{{ field_name }}"
+                                        {% if field_config.required %}required{% endif %}>
+                                    {% for option in field_config.options %}
+                                    <option value="{{ option }}" 
+                                            {% if current_config.get(field_name, field_config.default) == option %}selected{% endif %}>
+                                        {{ option }}
+                                    </option>
+                                    {% endfor %}
+                                </select>
+                                {% elif field_config.type == 'checkbox' %}
+                                <div class="form-check">
+                                    <input type="checkbox" 
+                                           class="form-check-input" 
+                                           name="{{ field_name }}"
+                                           id="{{ field_name }}"
+                                           {% if current_config.get(field_name, field_config.default) %}checked{% endif %}>
+                                    <label class="form-check-label" for="{{ field_name }}">
+                                        {{ field_config.label }}
+                                    </label>
+                                </div>
+                                {% endif %}
+                                
+                                <div class="error-message" id="error_{{ field_name }}"></div>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <!-- 按鈕區域 -->
+                    <div class="text-center mt-4">
+                        <button type="button" class="btn btn-secondary btn-lg me-3" onclick="goBack()">
+                            <i class="fas fa-arrow-left me-2"></i>
+                            返回
+                        </button>
+                        <button type="submit" class="btn btn-save btn-lg" id="btnSave">
+                            <span class="loading-spinner me-2">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </span>
+                            <i class="fas fa-save me-2"></i>
+                            儲存設定
+                        </button>
+                    </div>
+                </form>
+
+                <!-- 刪除FTP相關區塊與JS -->
+                {% if protocol == 'FTP' %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- 成功提示 Modal -->
+    <div class="modal fade" id="successModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header bg-success text-white">
+                    <h5 class="modal-title">
+                        <i class="fas fa-check-circle me-2"></i>
+                        設定儲存成功
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p>{{ protocol }} 的設定已成功儲存！</p>
+                    <p class="text-muted">即將自動跳轉到首頁，您可以在首頁手動切換系統模式。</p>
+                    <div class="text-center mt-3">
+                        <div class="spinner-border spinner-border-sm text-primary me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span class="text-muted">1 秒後自動跳轉...</span>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+                    <button type="button" class="btn btn-primary" onclick="window.location.href='/?updated=' + new Date().getTime() + '&protocol=' + encodeURIComponent('{{ protocol }}')">立即前往首頁</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 取得目前模式，若為工作模式則禁用所有欄位
+        fetch('/get-mode').then(r => r.json()).then(data => {
+            if(data.mode === 'work') {
+                document.querySelectorAll('#protocolConfigForm input, #protocolConfigForm select, #protocolConfigForm textarea').forEach(function(el){
+                    el.disabled = true;
+                });
+                document.getElementById('btnSave').onclick = function(e){
+                    e.preventDefault();
+                    alert('目前為工作模式，無法更改設定！');
+                };
+            }
+        });
+
+        // 表單提交處理
+        document.getElementById('protocolConfigForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveConfig();
+        });
+
+        function saveConfig() {
+            const form = document.getElementById('protocolConfigForm');
+            const formData = new FormData(form);
+            const btnSave = document.getElementById('btnSave');
+            const spinner = btnSave.querySelector('.loading-spinner');
+            
+            // 顯示載入狀態
+            btnSave.disabled = true;
+            spinner.style.display = 'inline-block';
+            
+            // 清除錯誤訊息
+            clearErrors();
+            
+            fetch(`/save-protocol-config/{{ protocol }}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // 顯示成功訊息
+                    const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+                    successModal.show();
+                    
+                    // 清除所有可能的 API 快取
+                    if ('caches' in window) {
+                        caches.keys().then(names => {
+                            names.forEach(name => {
+                                caches.delete(name);
+                            });
+                        });
+                    }
+                    
+                    // 檢查是否需要重定向到首頁
+                    if (data.redirect_to_home) {
+                        const delay = data.redirect_delay || 2000; // 增加到2秒讓用戶看到成功訊息
+                        setTimeout(() => {
+                            // 加上時間戳參數避免快取問題
+                            window.location.href = '/?updated=' + new Date().getTime() + '&protocol=' + encodeURIComponent('{{ protocol }}');
+                        }, delay);
+                    } else {
+                        // 如果不重定向，也等待2秒後關閉modal並重新整理頁面
+                        setTimeout(() => {
+                            window.location.reload(true); // 強制從伺服器重新載入
+                        }, 2000);
+                    }
+                    
+                    // 儲存成功後自動切換為工作模式 (已註解)
+                    // fetch('/api/mode', {
+                    //     method: 'POST',
+                    //     headers: { 'Content-Type': 'application/json' },
+                    //     body: JSON.stringify({ mode: 'work' })
+                    // });
+                    // 如果是FTP協定，顯示服務控制 (已註解)
+                    // {% if protocol == 'FTP' %}
+                    // setTimeout(() => {
+                    //     showFTPServiceControl();
+                    // }, 1000);
+                    // {% endif %}
+                } else {
+                    // 顯示錯誤訊息
+                    if (data.errors) {
+                        displayErrors(data.errors);
+                    } else {
+                        alert('儲存設定時發生錯誤: ' + data.message);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('網路錯誤，請稍後再試');
+            })
+            .finally(() => {
+                // 恢復按鈕狀態
+                btnSave.disabled = false;
+                spinner.style.display = 'none';
+            });
+        }
+
+        function displayErrors(errors) {
+            for (const [field, errorList] of Object.entries(errors)) {
+                const errorElement = document.getElementById(`error_${field}`);
+                if (errorElement && errorList.length > 0) {
+                    errorElement.textContent = errorList.join(', ');
+                }
+            }
+        }
+
+        function clearErrors() {
+            document.querySelectorAll('.error-message').forEach(element => {
+                element.textContent = '';
+            });
+        }
+
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        function goToApplication() {
+            // 跳轉到對應的應用介面
+            window.location.href = `/application/${encodeURIComponent('{{ protocol }}')}`;
+        }
+
+        function goToSummary() {
+            window.location.href = '/config-summary';
+        }
+
+        // 鍵盤快捷鍵
+        document.addEventListener('keydown', function(e) {
+            if (e.ctrlKey && e.key === 's') {
+                e.preventDefault();
+                saveConfig();
+            }
+        });
+    </script>
+</body>
+</html> 

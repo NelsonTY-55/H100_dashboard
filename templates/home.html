@@ -1,0 +1,1395 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UART 資料監控系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+        }
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .settings-dropdown {
+            position: relative;
+        }
+        .settings-menu {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+            min-width: 300px;
+            z-index: 1000;
+            display: none;
+            padding: 1rem;
+        }
+        .settings-menu.show {
+            display: block;
+        }
+        .protocol-item {
+            display: flex;
+            align-items: center;
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: #333;
+        }
+        .protocol-item:hover {
+            background: #f8f9fa;
+            transform: translateX(5px);
+        }
+        .protocol-item:last-child {
+            margin-bottom: 0;
+        }
+        .protocol-icon {
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            width: 40px;
+            text-align: center;
+        }
+        .protocol-info {
+            flex: 1;
+        }
+        .protocol-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .protocol-status {
+            font-size: 0.8rem;
+            color: #6c757d;
+        }
+        .status-badge {
+            font-size: 0.7rem;
+            padding: 0.25rem 0.5rem;
+        }
+        .uart-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-top: 2rem;
+        }
+        .btn-control {
+            border-radius: 25px;
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        .btn-control:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+        }
+        .wifi-network-item {
+            transition: all 0.3s ease;
+        }
+        .wifi-network-item:hover {
+            background-color: #f8f9fa;
+            border-radius: 8px;
+        }
+        .wifi-network-item:last-child {
+            border-bottom: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- 導航欄 -->
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">
+                <i class="fas fa-microchip me-2"></i>
+                UART 監控系統
+            </a>
+            
+            <!-- 設定按鈕 -->
+            <div class="settings-dropdown">
+                <button class="btn btn-outline-primary" id="settingsBtn" onclick="handleSettingsClick()">
+                    <i class="fas fa-cog me-2"></i>
+                    通訊設定
+                </button>
+                
+                <!-- 設定選單 -->
+                <div class="settings-menu" id="settingsMenu">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <h6 class="mb-0 fw-bold">通訊協定設定</h6>
+                        <button class="btn-close" onclick="toggleSettings()"></button>
+    </div>
+
+                    <!-- MQTT 協定 -->
+                    <a href="/protocol-config/MQTT" class="protocol-item">
+                        <div class="protocol-icon text-primary">
+                            <i class="fas fa-broadcast-tower"></i>
+            </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">MQTT</div>
+                            <div class="protocol-status">MQTT 消息傳輸協定</div>
+        </div>
+                        <span class="badge bg-secondary status-badge" id="mqttStatusBadge">
+                            未設定
+                        </span>
+                    </a>
+                    
+                    <!-- RTU 協定 -->
+                    <a href="/protocol-config/RTU" class="protocol-item">
+                        <div class="protocol-icon text-info">
+                            <i class="fas fa-exchange-alt"></i>
+                        </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">RTU</div>
+                            <div class="protocol-status">RTU 遠端終端協定</div>
+            </div>
+                        <span class="badge bg-secondary status-badge" id="rtuStatusBadge">
+                            未設定
+                        </span>
+                    </a>
+                    
+                    <!-- FastAPI 協定 -->
+                    <a href="/protocol-config/FastAPI" class="protocol-item">
+                        <div class="protocol-icon text-danger">
+                            <i class="fas fa-code"></i>
+                        </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">FastAPI</div>
+                            <div class="protocol-status">FastAPI RESTful 介面</div>
+            </div>
+                        <span class="badge bg-secondary status-badge" id="fastAPIStatusBadge">
+                            未設定
+                        </span>
+                    </a>
+                    
+                    <!-- TCP 協定 -->
+                    <a href="/protocol-config/TCP" class="protocol-item">
+                        <div class="protocol-icon text-success">
+                            <i class="fas fa-network-wired"></i>
+                        </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">TCP</div>
+                            <div class="protocol-status">TCP 網路通訊協定</div>
+            </div>
+                        <span class="badge bg-secondary status-badge" id="tcpStatusBadge">
+                            未設定
+                        </span>
+                    </a>
+                    
+                    <!-- FTP 協定 -->
+                    <a href="/protocol-config/FTP" class="protocol-item">
+                        <div class="protocol-icon text-warning">
+                            <i class="fas fa-file-upload"></i>
+                        </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">FTP</div>
+                            <div class="protocol-status">FTP 檔案傳輸協定</div>
+                        </div>
+                        <span class="badge bg-secondary status-badge" id="ftpStatusBadge">
+                            未設定
+                        </span>
+                    </a>
+                    
+                    <hr class="my-3">
+                    
+                    <!-- 設定摘要連結 -->
+                    <a href="/config-summary" class="protocol-item">
+                        <div class="protocol-icon text-primary">
+                            <i class="fas fa-chart-bar"></i>
+                        </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">查看設定摘要</div>
+                            <div class="protocol-status">檢視所有通訊協定的設定狀態</div>
+                        </div>
+                        <i class="fas fa-chevron-right text-muted"></i>
+                    </a>
+                    
+                    <!-- Dashboard 連結 -->
+                    <a href="/dashboard" class="protocol-item">
+                        <div class="protocol-icon text-success">
+                            <i class="fas fa-tachometer-alt"></i>
+                        </div>
+                        <div class="protocol-info">
+                            <div class="protocol-name">系統監控面板</div>
+                            <div class="protocol-status">檢視系統資源使用和應用程式狀態</div>
+                        </div>
+                        <i class="fas fa-chevron-right text-muted"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 標題區域 -->
+    <div class="hero-section" style="margin-top: 70px;">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center">
+                    <h1 class="display-4 fw-bold mb-3">
+                        <i class="fas fa-microchip me-3"></i>
+                        UART 資料監控
+                    </h1>
+                    <!-- 模式切換鈕移除 -->
+                </div>
+            </div>
+        </div>
+        
+            <!-- UART 資料顯示區域 -->
+    <div class="container">
+        <!-- 模式切換區塊移到這裡 -->
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card mb-4 border-warning">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="card-title mb-0 fw-bold">
+                            <i class="fas fa-toggle-on me-2"></i>
+                            系統模式選擇
+                        </h5>
+                    </div>
+                    <div class="card-body text-center">
+                        <div class="btn-group" role="group" aria-label="模式切換">
+                            <input type="radio" class="btn-check" name="mode" id="idleMode" autocomplete="off" value="idle">
+                            <label class="btn btn-outline-primary" for="idleMode">閒置模式</label>
+                            <input type="radio" class="btn-check" name="mode" id="workMode" autocomplete="off" value="work">
+                            <label class="btn btn-outline-danger" for="workMode">工作模式</label>
+                        </div>
+                        <div class="mt-3">
+                            <span class="text-dark">目前模式：<span id="currentMode" class="fw-bold text-success">載入中...</span></span>
+                        </div>
+                        <div class="mt-2">
+                            <span class="text-dark">通訊協定：<span id="activeProtocol" class="fw-bold text-info">尚未啟用</span></span>
+                        </div>
+                        <div class="mt-3">
+                            <small class="text-muted">
+                                <i class="fas fa-info-circle me-1"></i>
+                                請在完成通訊設定後，手動切換至工作模式開始數據傳輸
+                            </small>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="card-title mb-0 fw-bold">
+                            <i class="fas fa-wifi me-2"></i>
+                            WiFi 網路連接
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 當前連接狀態 -->
+                        <div class="mb-3">
+                            <label class="form-label text-muted">當前WiFi連接：</label>
+                            <div>
+                                <span class="badge fs-6 px-3 py-2 bg-success" id="currentWifiBadge">
+                                    <i class="fas fa-wifi me-2"></i>已連接網路
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- WiFi選擇下拉選單 -->
+                        <div class="mb-3">
+                            <label for="wifiSelect" class="form-label">選擇WiFi網路：</label>
+                            <div class="input-group">
+                                <select class="form-select" id="wifiSelect" disabled>
+                                    <option value="">請先掃描WiFi網路</option>
+                                </select>
+                                <button class="btn btn-outline-primary" type="button" onclick="scanWifiNetworks()" id="scanBtn">
+                                    <i class="fas fa-search me-1"></i>掃描
+                                </button>
+                                <button class="btn btn-outline-secondary" type="button" onclick="debugWifiScan()" id="debugBtn" title="WiFi掃描調試">
+                                    <i class="fas fa-bug"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- WiFi密碼輸入 -->
+                        <div class="mb-3">
+                            <label for="wifiPasswordInput" class="form-label">WiFi密碼：</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="wifiPasswordInput" placeholder="請輸入WiFi密碼（開放網路可留空）" disabled>
+                                <button class="btn btn-outline-secondary" type="button" onclick="togglePasswordVisibilityMain()" disabled id="toggleBtn">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 連接按鈕 -->
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-success" onclick="connectToSelectedWifi()" disabled id="connectBtn">
+                                <i class="fas fa-link me-2"></i>連接到選擇的WiFi
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- UART 資料顯示區域 -->
+        <div class="uart-card">
+                <div class="card-header bg-primary text-white">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h4 class="mb-0">
+                        <i class="fas fa-microchip me-2"></i>
+                        UART 資料監控
+                    </h4>
+                    <div class="d-flex gap-2">
+                        <span class="badge bg-light text-dark fs-6 px-3 py-2">
+                            <i class="fas fa-plug me-2"></i>
+                            連接埠：{{ uart_status.com_port }}
+                        </span>
+                        <span class="badge fs-6 px-3 py-2 {% if uart_status.is_running %}bg-success{% else %}bg-secondary{% endif %}" id="uartStatusBadge">
+                            <i class="fas fa-circle me-2"></i>
+                            {% if uart_status.is_running %}運行中{% else %}已停止{% endif %}
+                        </span>
+                    </div>
+                </div>
+                </div>
+                <div class="card-body">
+                    <!-- UART 控制按鈕 -->
+                    <div class="row mb-3">
+                        <div class="col-md-8">
+                            <div class="d-flex gap-2 flex-wrap">
+                            <button id="startUartBtn" class="btn btn-success btn-control" onclick="startUart()">
+                                    <i class="fas fa-play me-2"></i>開始讀取
+                                </button>
+                            <button id="stopUartBtn" class="btn btn-danger btn-control" onclick="stopUart()" disabled>
+                                    <i class="fas fa-stop me-2"></i>停止讀取
+                                </button>
+                            <button class="btn btn-warning btn-control" onclick="clearUartData()">
+                                    <i class="fas fa-trash me-2"></i>清除資料
+                                </button>
+                            <button id="forceStartBtn" class="btn btn-outline-info btn-control" onclick="forceStartUart()" title="跳過網路檢查，直接啟動UART">
+                                    <i class="fas fa-rocket me-2"></i>強制啟動
+                                </button>
+
+                            </div>
+                        </div>
+                        <div class="col-md-4 text-end">
+                        <!-- 右上角狀態徽章已移除 -->
+                        </div>
+                    </div>
+                    
+                    <!-- UART 資料表格 -->
+                    <div class="table-responsive">
+                        <table class="table table-striped table-hover">
+                            <thead class="table-dark">
+                                <tr>
+                                    <th>日期時間</th>
+                                    <th>MAC ID</th>
+                                    <th>Channel</th>
+                                    <th>Parameter</th>
+                                    <th>單位</th>
+                                </tr>
+                            </thead>
+                            <tbody id="uartDataTable">
+                                {% for data in uart_status.latest_data %}
+                                <tr>
+                                    <td>{{ data.timestamp }}</td>
+                                    <td><code>{{ data.mac_id }}</code></td>
+                                    <td><span class="badge bg-info">{{ data.channel }}</span></td>
+                                    <td><strong>{{ data.parameter }}</strong></td>
+                                    <td><span class="badge {% if data.unit == 'A' %}bg-warning{% elif data.unit == 'V' %}bg-success{% else %}bg-secondary{% endif %}">{{ data.unit }}</span></td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <!-- 無資料提示 -->
+                    {% if not uart_status.latest_data %}
+                    <div class="text-center text-muted py-4">
+                        <i class="fas fa-inbox fa-3x mb-3"></i>
+                        <p class="lead">尚未有UART資料</p>
+                        <p>請點擊「開始讀取」按鈕開始監控UART資料</p>
+                    </div>
+                    {% endif %}
+        </div>
+    </div>
+    </div>
+
+    <script>
+        // 檢查 URL 參數，如果有 updated 參數表示從設定頁面更新後跳轉
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('updated')) {
+                const protocolParam = urlParams.get('protocol');
+                
+                // 清除 URL 參數，避免重複觸發
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
+                
+                // 顯示更新成功提示
+                setTimeout(() => {
+                    const message = protocolParam ? 
+                        `${protocolParam} 協定設定已更新` : 
+                        '設定已更新';
+                    showAlert(message, 'success');
+                    
+                    // 更新協定狀態顯示
+                    if (protocolParam) {
+                        updateProtocolStatus(protocolParam, true);
+                        // 更新通訊協定顯示
+                        setTimeout(() => {
+                            updateActiveProtocolDisplay();
+                        }, 100);
+                    }
+                }, 500);
+            }
+            
+            // 頁面載入時檢查並載入協定狀態
+            loadProtocolStatuses();
+            
+            // 頁面載入時取得模式並更新按鈕狀態
+            fetchMode();
+        });
+        
+        // 更新特定協定的狀態顯示
+        function updateProtocolStatus(protocol, isConfigured) {
+            const badgeId = protocol.toLowerCase() === 'fastapi' ? 'fastAPIStatusBadge' : protocol.toLowerCase() + 'StatusBadge';
+            const badge = document.getElementById(badgeId);
+            
+            if (badge) {
+                if (isConfigured) {
+                    badge.className = 'badge bg-success status-badge';
+                    badge.textContent = '已設定';
+                    
+                    // 將狀態保存到 localStorage
+                    localStorage.setItem(`protocol_${protocol}_configured`, 'true');
+                } else {
+                    badge.className = 'badge bg-secondary status-badge';
+                    badge.textContent = '未設定';
+                    
+                    // 從 localStorage 移除狀態
+                    localStorage.removeItem(`protocol_${protocol}_configured`);
+                }
+            }
+        }
+        
+        // 從伺服器和 localStorage 載入所有協定狀態
+        function loadProtocolStatuses() {
+            const protocols = ['MQTT', 'RTU', 'FastAPI', 'TCP', 'FTP'];
+            
+            // 從伺服器獲取最新的設定狀態
+            fetch('/api/protocol/configured-status')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        protocols.forEach(protocol => {
+                            const isConfigured = data.protocol_status[protocol]?.configured || false;
+                            updateProtocolStatus(protocol, isConfigured);
+                            // 同步到 localStorage
+                            localStorage.setItem(`protocol_${protocol}_configured`, isConfigured);
+                        });
+                    } else {
+                        console.error('無法載入協定設定狀態:', data.message);
+                        // 如果伺服器錯誤，使用 localStorage 作為備份
+                        protocols.forEach(protocol => {
+                            const isConfigured = localStorage.getItem(`protocol_${protocol}_configured`) === 'true';
+                            updateProtocolStatus(protocol, isConfigured);
+                        });
+                    }
+                    // 更新通訊協定顯示
+                    updateActiveProtocolDisplay();
+                })
+                .catch(error => {
+                    console.error('協定狀態載入失敗:', error);
+                    // 如果網路錯誤，使用 localStorage 作為備份
+                    protocols.forEach(protocol => {
+                        const isConfigured = localStorage.getItem(`protocol_${protocol}_configured`) === 'true';
+                        updateProtocolStatus(protocol, isConfigured);
+                    });
+                    // 更新通訊協定顯示
+                    updateActiveProtocolDisplay();
+                });
+        }
+        
+        // 更新目前啟用的通訊協定顯示
+        function updateActiveProtocolDisplay() {
+            const protocolElement = document.getElementById('activeProtocol');
+            const currentMode = document.getElementById('currentMode').textContent;
+            
+            // 獲取已設定的協定列表
+            const protocols = ['MQTT', 'RTU', 'FastAPI', 'TCP', 'FTP'];
+            const configuredProtocols = protocols.filter(protocol => 
+                localStorage.getItem(`protocol_${protocol}_configured`) === 'true'
+            );
+            
+            if (currentMode === '工作模式') {
+                if (configuredProtocols.length > 0) {
+                    // 如果有啟用的協定，顯示第一個已設定的協定
+                    const activeProtocol = configuredProtocols[0];
+                    protocolElement.textContent = `目前啟用 ${activeProtocol} 功能`;
+                    protocolElement.className = 'fw-bold text-success';
+                } else {
+                    // 工作模式但沒有設定任何協定
+                    protocolElement.textContent = '無可用通訊協定';
+                    protocolElement.className = 'fw-bold text-danger';
+                }
+            } else {
+                // 閒置模式
+                if (configuredProtocols.length > 0) {
+                    protocolElement.textContent = `待機中 (可用: ${configuredProtocols.join(', ')})`;
+                    protocolElement.className = 'fw-bold text-info';
+                } else {
+                    protocolElement.textContent = '尚未啟用';
+                    protocolElement.className = 'fw-bold text-muted';
+                }
+            }
+            
+            // 更新通訊設定按鈕狀態
+            updateSettingsButtonState();
+        }
+        
+        function toggleSettings() {
+            const menu = document.getElementById('settingsMenu');
+            menu.classList.toggle('show');
+        }
+        
+        // 處理通訊設定按鈕點擊
+        function handleSettingsClick() {
+            const currentMode = document.getElementById('currentMode').textContent;
+            
+            if (currentMode === '工作模式') {
+                // 工作模式下不允許進入設定
+                showAlert('目前為工作模式無法設定，請先切換至閒置模式', 'warning');
+                return;
+            }
+            
+            // 閒置模式下正常開啟設定選單
+            toggleSettings();
+        }
+        
+        // 更新通訊設定按鈕狀態
+        function updateSettingsButtonState() {
+            const currentMode = document.getElementById('currentMode').textContent;
+            const settingsBtn = document.getElementById('settingsBtn');
+            
+            if (currentMode === '工作模式') {
+                // 工作模式：禁用按鈕並改變樣式
+                settingsBtn.disabled = true;
+                settingsBtn.classList.remove('btn-outline-primary');
+                settingsBtn.classList.add('btn-outline-secondary');
+                settingsBtn.style.opacity = '0.6';
+                settingsBtn.style.cursor = 'not-allowed';
+                settingsBtn.title = '工作模式下無法進行通訊設定';
+            } else {
+                // 閒置模式：啟用按鈕並恢復樣式
+                settingsBtn.disabled = false;
+                settingsBtn.classList.remove('btn-outline-secondary');
+                settingsBtn.classList.add('btn-outline-primary');
+                settingsBtn.style.opacity = '1';
+                settingsBtn.style.cursor = 'pointer';
+                settingsBtn.title = '';
+            }
+        }
+        
+        // 點擊外部關閉選單
+        document.addEventListener('click', function(event) {
+            const dropdown = document.querySelector('.settings-dropdown');
+            const menu = document.getElementById('settingsMenu');
+            
+            if (!dropdown.contains(event.target)) {
+                menu.classList.remove('show');
+            }
+        });
+
+        let eventSource = null;
+        
+        // 開始UART讀取
+        function startUart() {
+            // 首先檢查系統狀態，必要時啟用離線模式
+            fetch('/api/system/status')
+            .then(response => response.json())
+            .then(statusData => {
+                // 如果沒有網路且未啟用離線模式，自動啟用
+                if (!statusData.network_status.internet_available && !statusData.offline_mode) {
+                    showAlert('偵測到無網路連接，自動啟用離線模式', 'info');
+                    return fetch('/api/system/offline-mode', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ offline_mode: true })
+                    });
+                }
+                return Promise.resolve();
+            })
+            .then(() => {
+                // 現在啟動UART
+                return fetch('/api/uart/start', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('startUartBtn').disabled = true;
+                    document.getElementById('stopUartBtn').disabled = false;
+                    document.getElementById('forceStartBtn').disabled = true;
+                    // 即時切換運行狀態badge
+                    setUartStatusBadge(true);
+                    startRealtimeUpdates();
+                    showAlert('UART讀取已開始', 'success');
+                } else {
+                    showAlert(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('啟動UART時發生錯誤: ' + error.message, 'danger');
+            });
+        }
+        
+        // 強制啟動UART（跳過網路檢查）
+        function forceStartUart() {
+            if (confirm('確定要強制啟動UART讀取嗎？這將跳過網路檢查並自動啟用離線模式。')) {
+                // 先啟用離線模式
+                fetch('/api/system/offline-mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ offline_mode: true })
+                })
+                .then(() => {
+                    // 然後直接啟動UART
+                    return fetch('/api/uart/start', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('startUartBtn').disabled = true;
+                        document.getElementById('stopUartBtn').disabled = true;
+                        document.getElementById('forceStartBtn').disabled = true;
+                        // 即時切換運行狀態badge
+                        setUartStatusBadge(true);
+                        startRealtimeUpdates();
+                        updateNetworkStatus(); // 更新網路狀態顯示
+                        showAlert('UART讀取已強制啟動（離線模式）', 'success');
+                    } else {
+                        showAlert(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showAlert('強制啟動UART失敗: ' + error.message, 'danger');
+                });
+            }
+        }
+        
+        // 停止UART讀取
+        function stopUart() {
+            fetch('/api/uart/stop', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    document.getElementById('startUartBtn').disabled = false;
+                    document.getElementById('stopUartBtn').disabled = true;
+                    document.getElementById('forceStartBtn').disabled = false;
+                    // 即時切換運行狀態badge
+                    setUartStatusBadge(false);
+                    stopRealtimeUpdates();
+                    showAlert('UART讀取已停止', 'info');
+                } else {
+                    showAlert(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('停止UART時發生錯誤: ' + error.message, 'danger');
+            });
+        }
+        
+        // 清除UART資料
+        function clearUartData() {
+            if (confirm('確定要清除所有UART資料嗎？')) {
+                fetch('/api/uart/clear', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('uartDataTable').innerHTML = '';
+                        // 移除對#dataCount的操作
+                        showAlert('UART資料已清除', 'info');
+                    } else {
+                        showAlert(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showAlert('清除UART資料時發生錯誤: ' + error.message, 'danger');
+                });
+            }
+        }
+        
+
+        
+        // 開始即時更新
+        function startRealtimeUpdates() {
+            if (eventSource) {
+                eventSource.close();
+            }
+            
+            eventSource = new EventSource('/api/uart/stream');
+            
+            eventSource.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.error) {
+                        console.error('UART串流錯誤:', data.error);
+                        return;
+                    }
+                    
+                    // 更新資料表格
+                    updateUartTable(data);
+                    
+                    // 不再更新資料筆數
+                } catch (error) {
+                    console.error('解析UART資料時發生錯誤:', error);
+                }
+            };
+            
+            eventSource.onerror = function(error) {
+                console.error('UART串流連接錯誤:', error);
+                setTimeout(startRealtimeUpdates, 5000); // 5秒後重試
+            };
+        }
+        
+        // 停止即時更新
+        function stopRealtimeUpdates() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+        
+        // 更新UART資料表格
+        function updateUartTable(data) {
+            const tableBody = document.getElementById('uartDataTable');
+            // 判斷是否已存在相同資料（用timestamp+mac_id+channel+parameter唯一性）
+            const uniqueKey = `${data.timestamp}_${data.mac_id}_${data.channel}_${data.parameter}`;
+            let isExist = false;
+            for (let i = 0; i < tableBody.children.length; i++) {
+                const row = tableBody.children[i];
+                if (row.dataset && row.dataset.key === uniqueKey) {
+                    isExist = true;
+                    break;
+                }
+            }
+            if (isExist) return;
+            const newRow = document.createElement('tr');
+            newRow.dataset.key = uniqueKey;
+            // 根據單位設定badge顏色
+            let unitBadgeClass = 'bg-secondary';
+            if (data.unit === 'A') {
+                unitBadgeClass = 'bg-warning';
+            } else if (data.unit === 'V') {
+                unitBadgeClass = 'bg-success';
+            }
+            newRow.innerHTML = `
+                <td>${data.timestamp}</td>
+                <td><code>${data.mac_id}</code></td>
+                <td><span class="badge bg-info">${data.channel}</span></td>
+                <td><strong>${data.parameter}</strong></td>
+                <td><span class="badge ${unitBadgeClass}">${data.unit}</span></td>
+            `;
+            // 插入到表格最上方
+            tableBody.insertBefore(newRow, tableBody.firstChild);
+            // 保持最多顯示15筆資料（移除最下方的）
+            while (tableBody.children.length > 15) {
+                tableBody.removeChild(tableBody.lastChild);
+            }
+            // 移除無資料提示
+            const noDataDiv = document.querySelector('.text-center.text-muted');
+            if (noDataDiv) {
+                noDataDiv.remove();
+            }
+        }
+        
+        // 移除updateDataCount函數及相關呼叫
+        
+        // 新增badge切換function
+        function setUartStatusBadge(isRunning) {
+            const badge = document.getElementById('uartStatusBadge');
+            if (!badge) return;
+            if (isRunning) {
+                badge.className = 'badge fs-6 px-3 py-2 bg-success';
+                badge.innerHTML = '<i class="fas fa-circle me-2"></i>運行中';
+            } else {
+                badge.className = 'badge fs-6 px-3 py-2 bg-secondary';
+                badge.innerHTML = '<i class="fas fa-circle me-2"></i>已停止';
+            }
+        }
+        
+        // 顯示提示訊息
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+            alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.body.appendChild(alertDiv);
+            
+            // 3秒後自動移除
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 3000);
+        }
+        
+        // 取得目前模式
+        function fetchMode() {
+            fetch('/get-mode').then(r => r.json()).then(data => {
+                document.getElementById('currentMode').textContent = data.mode === 'idle' ? '閒置模式' : '工作模式';
+                document.getElementById('currentMode').className = 'fw-bold ' + (data.mode === 'idle' ? 'text-success' : 'text-danger');
+                document.getElementById('idleMode').checked = data.mode === 'idle';
+                document.getElementById('workMode').checked = data.mode === 'work';
+                
+                // 更新通訊協定顯示和設定按鈕狀態
+                updateActiveProtocolDisplay();
+            });
+        }
+        
+        // 切換模式
+        document.querySelectorAll('input[name="mode"]').forEach(el => {
+            el.addEventListener('change', function() {
+                fetch('/set-mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode: this.value })
+                }).then(r => r.json()).then(data => {
+                    document.getElementById('currentMode').textContent = data.mode === 'idle' ? '閒置模式' : '工作模式';
+                    document.getElementById('currentMode').className = 'fw-bold ' + (data.mode === 'idle' ? 'text-success' : 'text-danger');
+                    
+                    // 更新通訊協定顯示
+                    setTimeout(() => {
+                        updateActiveProtocolDisplay();
+                    }, 100);
+                    
+                    // 模式切換後的提示
+                    if (data.mode === 'work') {
+                        let message = '已切換到工作模式';
+                        if (data.activated_protocol && data.activated_protocol !== 'UART') {
+                            message += `，已啟動 ${data.activated_protocol} 協定`;
+                        }
+                        showAlert(message, 'info');
+                    } else {
+                        showAlert('已切換到閒置模式', 'info');
+                    }
+                });
+            });
+        });
+        // 頁面載入時取得模式
+        window.addEventListener('DOMContentLoaded', function() {
+            // 初始化所有狀態
+            fetchMode();
+            updateNetworkStatus();
+            initializeWifiStatus(); // 使用新的初始化函數，更好的錯誤處理
+            
+            // 設定定期更新
+            setInterval(fetchMode, 3000);
+            setInterval(updateNetworkStatus, 5000);
+        });
+        
+        // 網路狀態檢查和離線模式管理
+        function updateNetworkStatus() {
+            fetch('/api/system/status')
+            .then(response => response.json())
+            .then(data => {
+                // 更新當前WiFi狀態
+                updateCurrentWifiStatus(); // 啟用自動WiFi檢查
+            })
+            .catch(error => {
+                console.error('系統狀態檢查失敗:', error);
+            });
+        }
+        
+        // WiFi 狀態管理
+        let lastKnownWifiState = null;
+        
+        // 保存WiFi連接狀態到本地
+        function saveWifiState(ssid, status = 'connected') {
+            lastKnownWifiState = {
+                ssid: ssid,
+                status: status,
+                timestamp: Date.now()
+            };
+            localStorage.setItem('lastWifiState', JSON.stringify(lastKnownWifiState));
+        }
+        
+        // 從本地獲取上次保存的WiFi狀態
+        function getLastWifiState() {
+            try {
+                const saved = localStorage.getItem('lastWifiState');
+                if (saved) {
+                    const state = JSON.parse(saved);
+                    // 如果狀態超過1小時，認為可能已過期
+                    if (Date.now() - state.timestamp < 3600000) {
+                        return state;
+                    }
+                }
+            } catch (error) {
+                console.error('獲取WiFi狀態失敗:', error);
+            }
+            return null;
+        }
+        
+        // WiFi 相關功能
+        function initializeWifiStatus() {
+            const badge = document.getElementById('currentWifiBadge');
+            
+            // 保持 HTML 初始狀態，不自動更新為具體網路名稱
+            badge.className = 'badge fs-6 px-3 py-2 bg-success';
+            badge.innerHTML = '<i class="fas fa-wifi me-2"></i>已連接網路';
+        }
+        
+        function updateCurrentWifiStatus() {
+            // 保持顯示「已連接網路」，不更新為具體網路名稱
+            const badge = document.getElementById('currentWifiBadge');
+            badge.className = 'badge fs-6 px-3 py-2 bg-success';
+            badge.innerHTML = '<i class="fas fa-wifi me-2"></i>已連接網路';
+        }
+        
+        function scanWifiNetworks() {
+            const scanBtn = document.getElementById('scanBtn');
+            const wifiSelect = document.getElementById('wifiSelect');
+            const originalText = scanBtn.innerHTML;
+            
+            // 顯示載入狀態
+            scanBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>掃描中...';
+            scanBtn.disabled = true;
+            
+            fetch('/api/wifi/scan')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    populateWifiSelect(data.networks);
+                    showAlert(`找到 ${data.count} 個WiFi網路`, 'success');
+                } else {
+                    showAlert('WiFi掃描失敗: ' + data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('WiFi掃描過程發生錯誤: ' + error.message, 'danger');
+            })
+            .finally(() => {
+                // 恢復按鈕狀態
+                scanBtn.innerHTML = originalText;
+                scanBtn.disabled = false;
+            });
+        }
+        
+        function populateWifiSelect(networks) {
+            const wifiSelect = document.getElementById('wifiSelect');
+            const passwordInput = document.getElementById('wifiPasswordInput');
+            const toggleBtn = document.getElementById('toggleBtn');
+            const connectBtn = document.getElementById('connectBtn');
+            
+            // 清空選項
+            wifiSelect.innerHTML = '<option value="">請選擇WiFi網路</option>';
+            
+            if (networks.length === 0) {
+                wifiSelect.innerHTML = '<option value="">未找到可用的WiFi網路</option>';
+                wifiSelect.disabled = true;
+                passwordInput.disabled = true;
+                toggleBtn.disabled = true;
+                connectBtn.disabled = true;
+                return;
+            }
+            
+            // 添加網路選項
+            networks.forEach(network => {
+                const option = document.createElement('option');
+                option.value = JSON.stringify({
+                    ssid: network.ssid,
+                    security: network.security,
+                    signal: network.signal
+                });
+                
+                // 顯示格式：SSID (信號強度) [安全性]
+                const signalIcon = getSignalIconText(network.signal);
+                const securityText = network.security.toLowerCase().includes('open') ? '開放' : '加密';
+                option.textContent = `${network.ssid} ${signalIcon} [${securityText}]`;
+                
+                wifiSelect.appendChild(option);
+            });
+            
+            // 啟用控件
+            wifiSelect.disabled = false;
+            passwordInput.disabled = false;
+            toggleBtn.disabled = false;
+            
+            // 添加選擇事件監聽器
+            wifiSelect.addEventListener('change', function() {
+                const selectedValue = this.value;
+                if (selectedValue) {
+                    const networkInfo = JSON.parse(selectedValue);
+                    
+                    // 根據安全性設置密碼欄位
+                    if (networkInfo.security.toLowerCase().includes('open')) {
+                        passwordInput.placeholder = '此為開放網路，無需密碼';
+                        passwordInput.value = '';
+                    } else {
+                        passwordInput.placeholder = '請輸入WiFi密碼';
+                    }
+                    
+                    connectBtn.disabled = false;
+                } else {
+                    connectBtn.disabled = true;
+                }
+            });
+        }
+        
+        function getSignalIconText(signal) {
+            const signalStrength = parseInt(signal) || 0;
+            
+            if (signalStrength >= 80) {
+                return '📶 (強)';
+            } else if (signalStrength >= 60) {
+                return '📶 (良)';
+            } else if (signalStrength >= 40) {
+                return '📶 (中)';
+            } else {
+                return '📶 (弱)';
+            }
+        }
+        
+        function togglePasswordVisibilityMain() {
+            const passwordInput = document.getElementById('wifiPasswordInput');
+            const toggleBtn = document.getElementById('toggleBtn').querySelector('i');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleBtn.className = 'fas fa-eye-slash';
+            } else {
+                passwordInput.type = 'password';
+                toggleBtn.className = 'fas fa-eye';
+            }
+        }
+        
+        function connectToSelectedWifi() {
+            const wifiSelect = document.getElementById('wifiSelect');
+            const passwordInput = document.getElementById('wifiPasswordInput');
+            const connectBtn = document.getElementById('connectBtn');
+            
+            if (!wifiSelect.value) {
+                showAlert('請先選擇一個WiFi網路', 'warning');
+                return;
+            }
+            
+            const networkInfo = JSON.parse(wifiSelect.value);
+            const ssid = networkInfo.ssid;
+            const password = passwordInput.value.trim();
+            
+            const originalText = connectBtn.innerHTML;
+            
+            // 顯示連接中狀態
+            connectBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>連接中...';
+            connectBtn.disabled = true;
+            
+            fetch('/api/wifi/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    ssid: ssid,
+                    password: password
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showAlert(`成功連接到 WiFi: ${ssid}`, 'success');
+                    
+                    // 保存WiFi連接狀態
+                    saveWifiState(ssid, 'connected');
+                    
+                    // 立即更新當前WiFi顯示
+                    const badge = document.getElementById('currentWifiBadge');
+                    const details = document.getElementById('wifiDetails');
+                    
+                    badge.className = 'badge fs-6 px-3 py-2 bg-success';
+                    badge.innerHTML = `<i class="fas fa-wifi me-2"></i>已連接網路`;
+                    
+                    if (details) {
+                        details.innerHTML = `<i class="fas fa-check-circle me-1"></i>已成功連接到網路`;
+                        details.className = 'text-success';
+                    }
+                    
+                    // 清空選擇和密碼
+                    wifiSelect.value = '';
+                    passwordInput.value = '';
+                    
+                    // 延遲更新完整的WiFi狀態資訊
+                    setTimeout(() => {
+                        updateCurrentWifiStatus();
+                    }, 5000);
+                } else {
+                    showAlert(data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('WiFi連接過程發生錯誤: ' + error.message, 'danger');
+            })
+            .finally(() => {
+                // 恢復按鈕狀態
+                connectBtn.innerHTML = originalText;
+                connectBtn.disabled = false;
+            });
+        }
+        
+        function debugWifiScan() {
+            const debugBtn = document.getElementById('debugBtn');
+            const originalText = debugBtn.innerHTML;
+            
+            debugBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            debugBtn.disabled = true;
+            
+            fetch('/api/wifi/debug')
+            .then(response => response.json())
+            .then(data => {
+                console.log('WiFi調試資訊:', data);
+                
+                if (data.success) {
+                    const debugInfo = data.debug_info;
+                    let message = `系統: ${debugInfo.system}\n平台: ${debugInfo.platform}\n`;
+                    
+                    if (debugInfo.interfaces_cmd) {
+                        message += `\n介面命令狀態: ${debugInfo.interfaces_cmd.returncode}\n`;
+                        message += `輸出長度: ${debugInfo.interfaces_cmd.stdout_length}\n`;
+                    }
+                    
+                    if (debugInfo.scan_cmd) {
+                        message += `\n掃描命令狀態: ${debugInfo.scan_cmd.returncode}\n`;
+                        message += `掃描輸出長度: ${debugInfo.scan_cmd.stdout_length}\n`;
+                        
+                        if (debugInfo.scan_cmd.stdout_preview) {
+                            message += `\n掃描輸出預覽:\n${debugInfo.scan_cmd.stdout_preview}`;
+                        }
+                    }
+                    
+                    // 顯示詳細的調試資訊
+                    showWifiDebugModal(message, debugInfo);
+                } else {
+                    showAlert('WiFi調試失敗: ' + data.message, 'danger');
+                }
+            })
+            .catch(error => {
+                showAlert('WiFi調試過程發生錯誤: ' + error.message, 'danger');
+            })
+            .finally(() => {
+                debugBtn.innerHTML = originalText;
+                debugBtn.disabled = false;
+            });
+        }
+        
+        function showWifiDebugModal(message, debugInfo) {
+            const modalHtml = `
+                <div class="modal fade" id="wifiDebugModal" tabindex="-1">
+                    <div class="modal-dialog modal-lg">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title">
+                                    <i class="fas fa-bug me-2"></i>WiFi掃描調試資訊
+                                </h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div class="mb-3">
+                                    <label class="form-label">系統資訊</label>
+                                    <textarea class="form-control" rows="8" readonly>${message}</textarea>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">完整調試資料 (JSON)</label>
+                                    <textarea class="form-control" rows="10" readonly>${JSON.stringify(debugInfo, null, 2)}</textarea>
+                                </div>
+                                <div class="alert alert-info">
+                                    <i class="fas fa-info-circle me-2"></i>
+                                    如果掃描命令狀態不是0，或掃描輸出長度為0，表示WiFi掃描功能可能有問題。
+                                    請檢查系統的WiFi適配器是否正常運作。
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
+                                <button type="button" class="btn btn-primary" onclick="retryWifiScan()">重試掃描</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 移除之前的模態框（如果存在）
+            const existingModal = document.getElementById('wifiDebugModal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+            
+            // 添加新的模態框
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            
+            // 顯示模態框
+            const modal = new bootstrap.Modal(document.getElementById('wifiDebugModal'));
+            modal.show();
+        }
+        
+        function retryWifiScan() {
+            // 關閉調試模態框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('wifiDebugModal'));
+            if (modal) {
+                modal.hide();
+            }
+            
+            // 重新執行WiFi掃描
+            scanWifiNetworks();
+        }
+        
+        // 定期更新網路狀態（每15秒）
+        setInterval(updateNetworkStatus, 15000);
+        
+        // 頁面載入時立即檢查網路狀態
+        window.addEventListener('DOMContentLoaded', function() {
+            updateNetworkStatus();
+            // WiFi狀態初始化已在上面的DOMContentLoaded中處理
+        });
+        
+        // 頁面卸載時清理資源
+        window.addEventListener('beforeunload', function() {
+            stopRealtimeUpdates();
+        });
+    </script>
+    <script>
+    // 根據 is_running 狀態自動切換按鈕
+    var isRunning = JSON.parse("{{ 'true' if uart_status.is_running else 'false' }}");
+    
+    // 頁面載入完成後自動啟動UART讀取
+    document.addEventListener('DOMContentLoaded', function() {
+        // 如果UART還沒運行，自動啟動
+        if (!isRunning) {
+            console.log('自動啟動UART讀取...');
+            autoStartUart();
+        } else {
+            // 如果已經在運行，直接開始接收數據
+            console.log('UART已在運行，開始接收數據...');
+            startRealtimeUpdates();
+        }
+        
+        // 設定按鈕狀態
+        document.getElementById('startUartBtn').disabled = isRunning;
+        document.getElementById('stopUartBtn').disabled = !isRunning;
+        document.getElementById('forceStartBtn').disabled = isRunning;
+    });
+    
+    // 自動啟動UART的函數
+    function autoStartUart() {
+        // 首先檢查系統狀態
+        fetch('/api/system/status')
+        .then(response => response.json())
+        .then(statusData => {
+            // 如果沒有網路且未啟用離線模式，自動啟用離線模式
+            if (!statusData.network_status.internet_available && !statusData.offline_mode) {
+                console.log('偵測到無網路連接，自動啟用離線模式');
+                return fetch('/api/system/offline-mode', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ offline_mode: true })
+                });
+            }
+            return Promise.resolve();
+        })
+        .then(() => {
+            // 啟動UART
+            return fetch('/api/uart/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('UART自動啟動成功');
+                document.getElementById('startUartBtn').disabled = true;
+                document.getElementById('stopUartBtn').disabled = false;
+                document.getElementById('forceStartBtn').disabled = true;
+                setUartStatusBadge(true);
+                startRealtimeUpdates();
+                showAlert('UART已自動啟動', 'success');
+            } else {
+                console.error('UART自動啟動失敗:', data.message);
+                // 如果自動啟動失敗，嘗試強制啟動
+                if (confirm('UART自動啟動失敗，是否要強制啟動？\n錯誤訊息: ' + data.message)) {
+                    forceAutoStartUart();
+                } else {
+                    showAlert('UART自動啟動失敗: ' + data.message, 'warning');
+                }
+            }
+        })
+        .catch(error => {
+            console.error('UART自動啟動時發生錯誤:', error);
+            showAlert('UART自動啟動失敗，請手動啟動', 'warning');
+        });
+    }
+    
+    // 強制自動啟動UART
+    function forceAutoStartUart() {
+        // 先啟用離線模式
+        fetch('/api/system/offline-mode', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ offline_mode: true })
+        })
+        .then(() => {
+            // 然後啟動UART
+            return fetch('/api/uart/start', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                console.log('UART強制自動啟動成功');
+                document.getElementById('startUartBtn').disabled = true;
+                document.getElementById('stopUartBtn').disabled = false;
+                document.getElementById('forceStartBtn').disabled = true;
+                setUartStatusBadge(true);
+                startRealtimeUpdates();
+                updateNetworkStatus();
+                showAlert('UART已強制啟動（離線模式）', 'success');
+            } else {
+                console.error('UART強制自動啟動失敗:', data.message);
+                showAlert('UART強制啟動失敗: ' + data.message, 'danger');
+            }
+        })
+        .catch(error => {
+            console.error('UART強制自動啟動時發生錯誤:', error);
+            showAlert('UART強制啟動失敗，請手動操作', 'danger');
+        });
+    }
+    </script>
+    
+    <!-- Bootstrap JavaScript -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

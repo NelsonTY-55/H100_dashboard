@@ -1,0 +1,8 @@
+flask
+flask-cors 
+pymodbus 
+paho-mqtt
+pyserial
+pyftpdlib 
+flask-monitoringdashboard
+psutil 
