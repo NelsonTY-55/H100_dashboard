@@ -8,9 +8,26 @@ import csv
 from datetime import datetime
 from config_manager import ConfigManager
 import paho.mqtt.client as mqtt
-from pymodbus.server.sync import StartSerialServer
-from pymodbus.server.sync import StartTcpServer
-from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
+
+# 嘗試導入新版pymodbus API，如果失敗則使用舊版或跳過
+try:
+    from pymodbus.server import StartSerialServer, StartTcpServer
+    from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
+    MODBUS_AVAILABLE = True
+except ImportError:
+    try:
+        from pymodbus.server.sync import StartSerialServer, StartTcpServer
+        from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
+        MODBUS_AVAILABLE = True
+    except ImportError:
+        print("警告: pymodbus 模組不可用，Modbus 功能將被禁用")
+        MODBUS_AVAILABLE = False
+        StartSerialServer = None
+        StartTcpServer = None
+        ModbusSequentialDataBlock = None
+        ModbusSlaveContext = None
+        ModbusServerContext = None
+
 import logging
 
 class UARTReader:
@@ -473,14 +490,26 @@ class TCPReceiver:
         self.register_block_size = 12  # 4(MAC)+8(channel)
         self.max_devices = 10
         self.lock = threading.Lock()
-        self.store = ModbusSlaveContext(
-            hr=ModbusSequentialDataBlock(0, [0]*1000)  # 1000個holding register
-        )
-        self.context = ModbusServerContext(slaves=self.store, single=True)
+        
+        if MODBUS_AVAILABLE:
+            self.store = ModbusSlaveContext(
+                hr=ModbusSequentialDataBlock(0, [0]*1000)  # 1000個holding register
+            )
+            self.context = ModbusServerContext(slaves=self.store, single=True)
+        else:
+            self.store = None
+            self.context = None
+            logging.warning("Modbus 功能不可用，TCP協定將被禁用")
+            
         self.server_thread = None
     def start(self):
         if self.is_running:
             return
+            
+        if not MODBUS_AVAILABLE:
+            logging.error("[TCP] 無法啟動TCP服務：pymodbus 模組不可用")
+            return
+            
         self.is_running = True
         # 強制重新載入配置，確保使用最新設定
         self.config_manager.load_config()
@@ -731,15 +760,27 @@ class RTUReceiver:
         self.register_block_size = 12  # 4(MAC)+8(channel)
         self.max_devices = 10
         self.lock = threading.Lock()
-        self.store = ModbusSlaveContext(
-            hr=ModbusSequentialDataBlock(0, [0]*1000)  # 1000個holding register
-        )
-        self.context = ModbusServerContext(slaves=self.store, single=True)
+        
+        if MODBUS_AVAILABLE:
+            self.store = ModbusSlaveContext(
+                hr=ModbusSequentialDataBlock(0, [0]*1000)  # 1000個holding register
+            )
+            self.context = ModbusServerContext(slaves=self.store, single=True)
+        else:
+            self.store = None
+            self.context = None
+            logging.warning("Modbus 功能不可用，RTU協定將被禁用")
+            
         self.server_thread = None
         self.server_params = None
     def start(self):
         if self.is_running:
             return
+            
+        if not MODBUS_AVAILABLE:
+            logging.error("[RTU] 無法啟動RTU服務：pymodbus 模組不可用")
+            return
+            
         self.is_running = True
         # 強制reload config，確保抓到最新設定
         self.config_manager.load_config()

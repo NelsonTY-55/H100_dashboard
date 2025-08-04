@@ -1,0 +1,195 @@
+"""
+主程式 - 同時執行 app_integrated.py 和 dashboard.py
+"""
+
+import subprocess
+import sys
+import os
+import time
+import signal
+import threading
+from datetime import datetime
+
+class ServiceManager:
+    def __init__(self):
+        self.processes = {}
+        self.running = True
+        
+    def start_service(self, name, script_path, port):
+        """啟動服務"""
+        try:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 正在啟動 {name} 服務...")
+            
+            # 設定環境變數
+            env = os.environ.copy()
+            env['PYTHONPATH'] = os.getcwd()
+            
+            # 啟動 Python 腳本
+            process = subprocess.Popen(
+                [sys.executable, script_path],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            self.processes[name] = {
+                'process': process,
+                'script': script_path,
+                'port': port,
+                'start_time': datetime.now()
+            }
+            
+            # 啟動輸出監控執行緒
+            threading.Thread(
+                target=self.monitor_output, 
+                args=(name, process), 
+                daemon=True
+            ).start()
+            
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} 服務已啟動 (PID: {process.pid}, Port: {port})")
+            return True
+            
+        except Exception as e:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] 啟動 {name} 服務失敗: {e}")
+            return False
+    
+    def monitor_output(self, service_name, process):
+        """監控服務輸出"""
+        try:
+            for line in iter(process.stdout.readline, ''):
+                if self.running and line.strip():
+                    print(f"[{service_name}] {line.strip()}")
+        except Exception as e:
+            if self.running:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] {service_name} 輸出監控錯誤: {e}")
+    
+    def check_services(self):
+        """檢查服務狀態"""
+        for name, info in self.processes.items():
+            process = info['process']
+            if process.poll() is not None:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] 警告: {name} 服務已停止 (返回碼: {process.poll()})")
+                # 可以在這裡添加重啟邏輯
+    
+    def stop_all_services(self):
+        """停止所有服務"""
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 正在停止所有服務...")
+        self.running = False
+        
+        for name, info in self.processes.items():
+            try:
+                process = info['process']
+                if process.poll() is None:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] 停止 {name} 服務...")
+                    process.terminate()
+                    
+                    # 等待程序正常結束，如果超時則強制終止
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] 強制終止 {name} 服務...")
+                        process.kill()
+                        process.wait()
+                    
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} 服務已停止")
+            except Exception as e:
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] 停止 {name} 服務時發生錯誤: {e}")
+    
+    def show_status(self):
+        """顯示服務狀態"""
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 服務狀態:")
+        print("-" * 60)
+        
+        for name, info in self.processes.items():
+            process = info['process']
+            status = "運行中" if process.poll() is None else f"已停止 (返回碼: {process.poll()})"
+            uptime = datetime.now() - info['start_time']
+            
+            print(f"服務名稱: {name}")
+            print(f"  狀態: {status}")
+            print(f"  PID: {process.pid}")
+            print(f"  端口: {info['port']}")
+            print(f"  運行時間: {uptime}")
+            print(f"  腳本路徑: {info['script']}")
+            print()
+
+def signal_handler(signum, frame):
+    """處理系統信號"""
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 收到信號 {signum}，正在關閉服務...")
+    if 'service_manager' in globals():
+        service_manager.stop_all_services()
+    sys.exit(0)
+
+def main():
+    global service_manager
+    
+    print("="*60)
+    print("H100 Dashboard 多服務管理器")
+    print("="*60)
+    print(f"啟動時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print()
+    
+    # 註冊信號處理器
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
+    # 創建服務管理器
+    service_manager = ServiceManager()
+    
+    # 檢查腳本文件是否存在
+    scripts = [
+        ("主應用服務", "app_integrated.py", 5000),
+        ("Dashboard API", "dashboard.py", 5001)
+    ]
+    
+    for name, script, port in scripts:
+        if not os.path.exists(script):
+            print(f"錯誤: 找不到 {script} 文件")
+            return 1
+    
+    # 啟動所有服務
+    success_count = 0
+    for name, script, port in scripts:
+        if service_manager.start_service(name, script, port):
+            success_count += 1
+        time.sleep(2)  # 給每個服務一些啟動時間
+    
+    if success_count == 0:
+        print("錯誤: 沒有成功啟動任何服務")
+        return 1
+    
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 已啟動 {success_count}/{len(scripts)} 個服務")
+    print("\n服務訪問地址:")
+    print("  - 主應用: http://localhost:5000")
+    print("  - Dashboard: http://localhost:5001/dashboard")
+    print("  - 設備設定: http://localhost:5001/db-setting")
+    print("  - API 健康檢查: http://localhost:5001/api/health")
+    
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 服務監控中... (按 Ctrl+C 停止)")
+    
+    try:
+        # 主循環 - 監控服務狀態
+        while service_manager.running:
+            time.sleep(10)  # 每10秒檢查一次
+            service_manager.check_services()
+            
+    except KeyboardInterrupt:
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 收到停止信號...")
+    except Exception as e:
+        print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 監控過程中發生錯誤: {e}")
+    finally:
+        service_manager.stop_all_services()
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] 所有服務已停止")
+    
+    return 0
+
+if __name__ == '__main__':
+    try:
+        exit_code = main()
+        sys.exit(exit_code)
+    except Exception as e:
+        print(f"主程式執行錯誤: {e}")
+        sys.exit(1)
