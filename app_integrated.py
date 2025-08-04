@@ -12,8 +12,17 @@ import subprocess
 import sys
 import logging
 import platform
-from datetime import datetime
+import ftplib
+from datetime import datetime, timedelta
 from logging.handlers import TimedRotatingFileHandler
+
+# 嘗試導入 psutil，如果沒有安裝則跳過
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    print("psutil 未安裝，系統監控功能將受限，可以執行 'pip install psutil' 來安裝")
 
 # 嘗試導入 Flask-MonitoringDashboard，如果沒有安裝則跳過
 try:
@@ -23,9 +32,14 @@ except ImportError:
     DASHBOARD_AVAILABLE = False
     print("Flask-MonitoringDashboard 未安裝，可以執行 'pip install flask-monitoringdashboard' 來安裝")
 
-# 指定 logs 絕對路徑（不要放桌面）
-log_dir = "/home/pi/my_fastapi_app/logs"
-os.makedirs(log_dir, exist_ok=True)  # 自動建立資料夾（如果沒有的話）
+# 根據作業系統配置日誌路徑
+if platform.system() == "Windows":
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+else:
+    log_dir = "/home/pi/my_fastapi_app/logs"
+
+# 自動建立日誌資料夾
+os.makedirs(log_dir, exist_ok=True)
 
 # 建立自訂的日誌處理器，支援按日期自動切換
 class DailyLogHandler(TimedRotatingFileHandler):
@@ -115,6 +129,29 @@ else:
 # 全域變數暫存模式
 current_mode = {'mode': 'idle'}
 
+# 工具函數
+def get_system_info():
+    """獲取系統基本資訊"""
+    return {
+        'platform': platform.system(),
+        'platform_version': platform.release(),
+        'python_version': platform.python_version(),
+        'working_directory': os.getcwd(),
+        'log_directory': log_dir,
+        'psutil_available': PSUTIL_AVAILABLE,
+        'dashboard_available': DASHBOARD_AVAILABLE
+    }
+
+def safe_get_uart_data():
+    """安全地獲取UART數據"""
+    try:
+        if uart_reader and hasattr(uart_reader, 'get_latest_data'):
+            return uart_reader.get_latest_data()
+        return []
+    except Exception as e:
+        logging.warning(f"獲取UART數據時發生錯誤: {e}")
+        return []
+
 
 
 # 初始化設定管理器,111test
@@ -155,14 +192,11 @@ class LocalFTPServer:
                 
             # 檢查pyftpdlib是否安裝
             try:
-                import pyftpdlib
+                from pyftpdlib.authorizers import DummyAuthorizer
+                from pyftpdlib.handlers import FTPHandler
+                from pyftpdlib.servers import FTPServer
             except ImportError:
                 return False, "需要安裝 pyftpdlib，請執行: pip install pyftpdlib"
-            
-            # 啟動FTP伺服器
-            from pyftpdlib.authorizers import DummyAuthorizer
-            from pyftpdlib.handlers import FTPHandler
-            from pyftpdlib.servers import FTPServer
             
             authorizer = DummyAuthorizer()
             authorizer.add_user(self.username, self.password, self.test_dir, perm="elradfmwMT")
@@ -403,56 +437,57 @@ def flask_dashboard():
             pass
     
     # 提供基本的系統監控資訊
-    try:
-        import psutil
-        # 在 Windows 系統上，某些 psutil 功能可能需要特殊處理
+    system_info = {}
+    if PSUTIL_AVAILABLE:
         try:
-            cpu_percent = psutil.cpu_percent(interval=1)
-        except:
-            cpu_percent = 0
-            
-        try:
-            memory_info = psutil.virtual_memory()._asdict()
-        except:
-            memory_info = {'percent': 0, 'total': 0, 'available': 0}
-            
-        try:
-            if os.name == 'nt':  # Windows 系統
-                disk_info = psutil.disk_usage('C:\\')._asdict()
-            else:
-                disk_info = psutil.disk_usage('/')._asdict()
-        except:
-            disk_info = {'percent': 0, 'total': 0, 'free': 0}
-            
-        try:
-            network_info = psutil.net_io_counters()._asdict() if psutil.net_io_counters() else {}
-        except:
-            network_info = {}
-            
-        try:
-            boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            boot_time = 'N/A'
-            
-        system_info = {
-            'cpu_percent': cpu_percent,
-            'memory': memory_info,
-            'disk': disk_info,
-            'network': network_info,
-            'boot_time': boot_time
-        }
-    except ImportError:
+            # 在 Windows 系統上，某些 psutil 功能可能需要特殊處理
+            try:
+                cpu_percent = psutil.cpu_percent(interval=1)
+            except:
+                cpu_percent = 0
+                
+            try:
+                memory_info = psutil.virtual_memory()._asdict()
+            except:
+                memory_info = {'percent': 0, 'total': 0, 'available': 0}
+                
+            try:
+                if os.name == 'nt':  # Windows 系統
+                    disk_info = psutil.disk_usage('C:\\')._asdict()
+                else:
+                    disk_info = psutil.disk_usage('/')._asdict()
+            except:
+                disk_info = {'percent': 0, 'total': 0, 'free': 0}
+                
+            try:
+                network_info = psutil.net_io_counters()._asdict() if psutil.net_io_counters() else {}
+            except:
+                network_info = {}
+                
+            try:
+                boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                boot_time = 'N/A'
+                
+            system_info = {
+                'cpu_percent': cpu_percent,
+                'memory': memory_info,
+                'disk': disk_info,
+                'network': network_info,
+                'boot_time': boot_time
+            }
+        except Exception as psutil_error:
+            logging.error(f"獲取系統資訊時發生錯誤: {psutil_error}")
+            system_info = {
+                'cpu_percent': 'N/A (系統資訊獲取失敗)',
+                'memory': {'percent': 0},
+                'disk': {'percent': 0},
+                'network': {},
+                'boot_time': 'N/A'
+            }
+    else:
         system_info = {
             'cpu_percent': 'N/A (需要安裝 psutil)',
-            'memory': {'percent': 0},
-            'disk': {'percent': 0},
-            'network': {},
-            'boot_time': 'N/A'
-        }
-    except Exception as psutil_error:
-        logging.error(f"獲取系統資訊時發生錯誤: {psutil_error}")
-        system_info = {
-            'cpu_percent': 'N/A (系統資訊獲取失敗)',
             'memory': {'percent': 0},
             'disk': {'percent': 0},
             'network': {},
@@ -505,52 +540,53 @@ def dashboard_stats():
     """API: 獲取 Dashboard 統計資料"""
     try:
         # 系統資源資訊
-        try:
-            import psutil
-            # Windows 系統特殊處理
+        system_stats = {}
+        if PSUTIL_AVAILABLE:
             try:
-                cpu_percent = psutil.cpu_percent(interval=0.1)
-            except:
-                cpu_percent = 0
-                
-            try:
-                memory_percent = psutil.virtual_memory().percent
-            except:
-                memory_percent = 0
-                
-            try:
-                if os.name == 'nt':  # Windows 系統
-                    disk_percent = psutil.disk_usage('C:\\').percent
-                else:
-                    disk_percent = psutil.disk_usage('/').percent
-            except:
-                disk_percent = 0
-                
-            try:
-                net_io = psutil.net_io_counters()
-                network_sent = net_io.bytes_sent if net_io else 0
-                network_recv = net_io.bytes_recv if net_io else 0
-            except:
-                network_sent = 0
-                network_recv = 0
-                
-            system_stats = {
-                'cpu_percent': cpu_percent,
-                'memory_percent': memory_percent,
-                'disk_percent': disk_percent,
-                'network_sent': network_sent,
-                'network_recv': network_recv,
-            }
-        except ImportError:
-            system_stats = {
-                'cpu_percent': 0,
-                'memory_percent': 0,
-                'disk_percent': 0,
-                'network_sent': 0,
-                'network_recv': 0,
-            }
-        except Exception as psutil_error:
-            logging.error(f"獲取系統統計時發生錯誤: {psutil_error}")
+                # Windows 系統特殊處理
+                try:
+                    cpu_percent = psutil.cpu_percent(interval=0.1)
+                except:
+                    cpu_percent = 0
+                    
+                try:
+                    memory_percent = psutil.virtual_memory().percent
+                except:
+                    memory_percent = 0
+                    
+                try:
+                    if os.name == 'nt':  # Windows 系統
+                        disk_percent = psutil.disk_usage('C:\\').percent
+                    else:
+                        disk_percent = psutil.disk_usage('/').percent
+                except:
+                    disk_percent = 0
+                    
+                try:
+                    net_io = psutil.net_io_counters()
+                    network_sent = net_io.bytes_sent if net_io else 0
+                    network_recv = net_io.bytes_recv if net_io else 0
+                except:
+                    network_sent = 0
+                    network_recv = 0
+                    
+                system_stats = {
+                    'cpu_percent': cpu_percent,
+                    'memory_percent': memory_percent,
+                    'disk_percent': disk_percent,
+                    'network_sent': network_sent,
+                    'network_recv': network_recv,
+                }
+            except Exception as psutil_error:
+                logging.error(f"獲取系統統計時發生錯誤: {psutil_error}")
+                system_stats = {
+                    'cpu_percent': 0,
+                    'memory_percent': 0,
+                    'disk_percent': 0,
+                    'network_sent': 0,
+                    'network_recv': 0,
+                }
+        else:
             system_stats = {
                 'cpu_percent': 0,
                 'memory_percent': 0,
@@ -1585,11 +1621,16 @@ def ftp_status():
                 'success': True,
                 'is_running': ftp_receiver.is_running,
                 'data_count': len(ftp_receiver.get_latest_data()),
-                'last_upload_time': ftp_receiver.last_upload_time,
-                'upload_interval': ftp_receiver.upload_interval
+                'last_upload': getattr(ftp_receiver, 'last_upload_time', None),
+                'upload_status': getattr(ftp_receiver, 'upload_status', 'unknown')
             })
         else:
-            return jsonify({'success': False, 'message': 'FTP協定未啟用'})
+            return jsonify({
+                'success': False,
+                'message': 'FTP協定未啟用',
+                'is_running': False,
+                'data_count': 0
+            })
     except Exception as e:
         return jsonify({'success': False, 'message': f'獲取FTP狀態失敗: {str(e)}'})
 
@@ -1731,11 +1772,14 @@ def ftp_test_upload():
 # 錯誤處理
 @app.errorhandler(404)
 def not_found_error(error):
+    """處理404錯誤"""
     return render_template('404.html'), 404
 
 @app.errorhandler(500)
 def internal_error(error):
-    return render_template('500.html'), 500
+    """處理500錯誤"""
+    logging.error(f"內部伺服器錯誤: {error}")
+    return render_template('error.html', error_message="內部伺服器錯誤"), 500
 
 @app.route('/get-mode', methods=['GET'])
 def get_mode():
