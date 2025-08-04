@@ -3,15 +3,20 @@ Dashboard API 服務
 獨立的 Dashboard 和設備設定管理 API 服務
 """
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, make_response
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, make_response, Response, session
 from config_manager import ConfigManager
-from uart_integrated import uart_reader
+from uart_integrated import uart_reader, protocol_manager
+from network_utils import network_checker, create_offline_mode_manager
 from device_settings import DeviceSettingsManager
 from multi_device_settings import MultiDeviceSettingsManager
 import os
 import json
 import logging
 import platform
+import sys
+import time
+import threading
+import glob
 from datetime import datetime, timedelta
 
 # 嘗試導入 psutil，如果沒有安裝則跳過
@@ -39,6 +44,125 @@ app.secret_key = 'dashboard_secret_key_2025'
 config_manager = ConfigManager()
 device_settings_manager = DeviceSettingsManager()
 multi_device_settings_manager = MultiDeviceSettingsManager()
+
+# 初始化離線模式管理器
+offline_mode_manager = create_offline_mode_manager(config_manager)
+
+# 啟動時自動偵測網路狀態
+network_mode = offline_mode_manager.auto_detect_mode()
+logging.info(f"系統啟動模式: {network_mode}")
+
+# 全域變數暫存模式
+current_mode = {'mode': 'idle'}
+
+# 本地FTP測試伺服器管理
+class LocalFTPServer:
+    def __init__(self):
+        self.server_process = None
+        self.is_running = False
+        self.test_dir = "test_ftp_server"
+        self.port = 2121
+        self.username = "test_user"
+        self.password = "test_password"
+        
+    def start_server(self):
+        """啟動本地FTP測試伺服器"""
+        if self.is_running:
+            return False, "FTP伺服器已在運行中"
+            
+        try:
+            # 建立測試目錄
+            if not os.path.exists(self.test_dir):
+                os.makedirs(self.test_dir)
+                
+            # 檢查pyftpdlib是否安裝
+            try:
+                import pyftpdlib
+            except ImportError:
+                return False, "需要安裝 pyftpdlib，請執行: pip install pyftpdlib"
+            
+            # 啟動FTP伺服器
+            from pyftpdlib.authorizers import DummyAuthorizer
+            from pyftpdlib.handlers import FTPHandler
+            from pyftpdlib.servers import FTPServer
+            
+            authorizer = DummyAuthorizer()
+            authorizer.add_user(self.username, self.password, self.test_dir, perm="elradfmwMT")
+            
+            handler = FTPHandler
+            handler.authorizer = authorizer
+            
+            server = FTPServer(("127.0.0.1", self.port), handler)
+            server.max_cons = 256
+            server.max_cons_per_ip = 5
+            
+            # 在新執行緒中啟動伺服器
+            def run_server():
+                try:
+                    server.serve_forever()
+                except Exception as e:
+                    print(f"FTP伺服器錯誤: {e}")
+                    
+            server_thread = threading.Thread(target=run_server, daemon=True)
+            server_thread.start()
+            
+            self.is_running = True
+            return True, f"本地FTP測試伺服器已啟動 (127.0.0.1:{self.port})"
+            
+        except Exception as e:
+            return False, f"啟動FTP伺服器失敗: {str(e)}"
+            
+    def stop_server(self):
+        """停止本地FTP測試伺服器"""
+        if not self.is_running:
+            return False, "FTP伺服器未運行"
+            
+        try:
+            self.is_running = False
+            return True, "本地FTP測試伺服器已停止"
+        except Exception as e:
+            return False, f"停止FTP伺服器失敗: {str(e)}"
+            
+    def get_status(self):
+        """獲取伺服器狀態"""
+        return {
+            'is_running': self.is_running,
+            'host': '127.0.0.1',
+            'port': self.port,
+            'username': self.username,
+            'password': self.password,
+            'test_dir': os.path.abspath(self.test_dir)
+        }
+        
+    def update_config_for_test(self):
+        """更新config.json為測試設定"""
+        try:
+            config_file = "config.json"
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                
+                # 更新FTP設定為本地測試伺服器
+                config['protocols']['FTP'] = {
+                    "host": "127.0.0.1",
+                    "port": self.port,
+                    "username": self.username,
+                    "password": self.password,
+                    "remote_dir": "/",
+                    "passive_mode": True
+                }
+                
+                with open(config_file, 'w', encoding='utf-8') as f:
+                    json.dump(config, f, indent=2, ensure_ascii=False)
+                
+                return True, "已更新config.json為測試設定"
+            else:
+                return False, "config.json檔案不存在"
+        except Exception as e:
+            return False, f"更新設定失敗: {str(e)}"
+
+# 建立全域FTP伺服器實例
+local_ftp_server = LocalFTPServer()
 
 # 工具函數
 def get_system_info():
@@ -1042,6 +1166,932 @@ def get_uart_mac_channels(mac_id=None):
             'message': f'獲取MAC通道資訊時發生錯誤: {str(e)}',
             'data': {}
         })
+
+# ====== 協定相關API ======
+
+@app.route('/api/protocols')
+def get_protocols():
+    """API: 獲取支援的協定列表"""
+    protocols = config_manager.get_supported_protocols()
+    result = []
+    
+    for protocol in protocols:
+        result.append({
+            'name': protocol,
+            'description': config_manager.get_protocol_description(protocol)
+        })
+    
+    return jsonify(result)
+
+@app.route('/api/protocol-config/<protocol>')
+def get_protocol_config_api(protocol):
+    """API: 獲取協定設定"""
+    if not config_manager.validate_protocol(protocol):
+        return jsonify({'success': False, 'message': '不支援的協定'})
+    
+    config = config_manager.get_protocol_config(protocol)
+    field_info = config_manager.get_protocol_field_info(protocol)
+    
+    return jsonify({
+        'success': True,
+        'config': config,
+        'field_info': field_info,
+        'description': config_manager.get_protocol_description(protocol)
+    })
+
+@app.route('/api/config')
+def get_all_config():
+    """API: 獲取所有設定"""
+    return jsonify(config_manager.get_all())
+
+@app.route('/api/active-protocol', methods=['GET', 'POST'])
+def api_active_protocol():
+    """取得或設定目前啟用的通訊協定"""
+    if request.method == 'GET':
+        protocol = config_manager.get_active_protocol()
+        return jsonify({'success': True, 'active_protocol': protocol})
+    else:
+        data = request.get_json()
+        protocol = data.get('protocol')
+        if config_manager.set_active_protocol(protocol):
+            return jsonify({'success': True, 'active_protocol': protocol})
+        else:
+            return jsonify({'success': False, 'message': '無效的協定名稱'})
+
+@app.route('/api/protocol/status', methods=['GET'])
+def api_protocol_status():
+    """API: 獲取協定運行狀態"""
+    try:
+        # 獲取目前啟用的協定
+        active_protocol = config_manager.get_active_protocol()
+        
+        # 檢查協定管理器中的活動協定
+        running_protocol = getattr(protocol_manager, 'active', None) if 'protocol_manager' in globals() else None
+        
+        return jsonify({
+            'success': True,
+            'active_protocol': active_protocol,
+            'running_protocol': running_protocol,
+            'is_running': running_protocol is not None and running_protocol == active_protocol
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'獲取協定狀態失敗: {str(e)}'
+        })
+
+@app.route('/api/protocol/configured-status', methods=['GET'])
+def api_protocol_configured_status():
+    """API: 獲取所有協定的設定狀態"""
+    try:
+        protocol_status = {}
+        for protocol in config_manager.get_supported_protocols():
+            # 使用配置管理器的 is_protocol_configured 方法檢查設定狀態
+            is_configured = config_manager.is_protocol_configured(protocol)
+            
+            protocol_status[protocol] = {
+                'configured': is_configured,
+                'description': config_manager.get_protocol_description(protocol)
+            }
+        
+        return jsonify({
+            'success': True,
+            'protocol_status': protocol_status
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'獲取協定設定狀態失敗: {str(e)}'
+        })
+
+@app.route('/api/protocol/start', methods=['POST'])
+def api_start_protocol():
+    """API: 啟動指定的通訊協定"""
+    try:
+        data = request.get_json() or {}
+        protocol = data.get('protocol')
+        
+        if not protocol:
+            # 如果沒有指定協定，嘗試啟動目前設定的啟用協定
+            protocol = config_manager.get_active_protocol()
+            
+        if not protocol or protocol == 'None':
+            return jsonify({
+                'success': False,
+                'message': '沒有指定要啟動的協定，請先設定通訊協定'
+            })
+        
+        # 檢查協定是否已設定
+        if not config_manager.is_protocol_configured(protocol):
+            return jsonify({
+                'success': False,
+                'message': f'{protocol} 協定尚未設定，請先完成設定'
+            })
+        
+        # 檢查離線模式
+        offline_mode = config_manager.get('offline_mode', False)
+        
+        # 啟動協定
+        try:
+            if 'protocol_manager' in globals():
+                protocol_manager.start(protocol)
+            
+            # 設定為啟用協定
+            config_manager.set_active_protocol(protocol)
+            
+            message = f'{protocol} 通訊協定已成功啟動'
+            if offline_mode:
+                message += '（離線模式）'
+            
+            return jsonify({
+                'success': True,
+                'message': message,
+                'active_protocol': protocol
+            })
+            
+        except Exception as e:
+            logging.exception(f'啟動 {protocol} 協定失敗: {str(e)}')
+            return jsonify({
+                'success': False,
+                'message': f'啟動 {protocol} 協定失敗: {str(e)}'
+            })
+            
+    except Exception as e:
+        logging.exception(f'處理協定啟動請求失敗: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': f'處理請求失敗: {str(e)}'
+        })
+
+# ====== UART相關API ======
+
+@app.route('/api/uart/test', methods=['POST'])
+def test_uart_connection():
+    """API: 測試UART連接"""
+    try:
+        success, message = uart_reader.test_uart_connection()
+        return jsonify({'success': success, 'message': message})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'測試UART連接時發生錯誤: {str(e)}'})
+
+@app.route('/api/uart/ports')
+def list_uart_ports():
+    """API: 列出可用的串口"""
+    try:
+        ports = uart_reader.list_available_ports()
+        return jsonify({'success': True, 'ports': ports})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'列出串口時發生錯誤: {str(e)}'})
+
+@app.route('/api/uart/start', methods=['POST'])
+def start_uart():
+    logging.info(f'API: 開始UART讀取, remote_addr={request.remote_addr}')
+    try:
+        if uart_reader.is_running:
+            return jsonify({'success': True, 'message': 'UART已在運行'})
+        
+        # 先測試UART連接
+        test_success, test_message = uart_reader.test_uart_connection()
+        if not test_success:
+            # 列出可用串口
+            available_ports = uart_reader.list_available_ports()
+            port_info = ', '.join([f"{p['device']}({p['description']})" for p in available_ports]) if available_ports else "無可用串口"
+            
+            return jsonify({
+                'success': False, 
+                'message': f'UART連接測試失敗: {test_message}',
+                'available_ports': available_ports,
+                'suggestion': f'可用串口: {port_info}'
+            })
+        
+        # 檢查網路狀態並自動設定離線模式
+        try:
+            network_status = network_checker.get_network_status()
+            if not network_status['internet_available']:
+                if not config_manager.get('offline_mode', False):
+                    logging.info("偵測到無網路連接，自動啟用離線模式")
+                    offline_mode_manager.enable_offline_mode()
+        except Exception as network_error:
+            logging.warning(f"網路檢查失敗，繼續以離線模式運行: {network_error}")
+            offline_mode_manager.enable_offline_mode()
+        
+        # 檢查是否為離線模式
+        offline_mode = config_manager.get('offline_mode', False)
+        if offline_mode:
+            logging.info("離線模式：UART讀取將在離線模式下啟動")
+        
+        if uart_reader.start_reading():
+            message = 'UART讀取已開始'
+            if offline_mode:
+                message += '（離線模式）'
+            return jsonify({'success': True, 'message': message})
+        else:
+            # 提供更詳細的錯誤診斷
+            available_ports = uart_reader.list_available_ports()
+            com_port, _, _, _, _, _ = uart_reader.get_uart_config()
+            
+            error_details = {
+                'success': False,
+                'message': 'UART讀取啟動失敗',
+                'details': {
+                    'configured_port': com_port,
+                    'available_ports': available_ports,
+                    'suggestions': [
+                        f'檢查設備是否連接: ls -la {com_port}',
+                        '檢查用戶權限: sudo usermod -a -G dialout $USER',
+                        '重新載入驅動: sudo modprobe ftdi_sio',
+                        '檢查USB設備: lsusb',
+                        '查看系統日誌: dmesg | tail'
+                    ]
+                }
+            }
+            
+            return jsonify(error_details)
+    except Exception as e:
+        logging.exception(f'啟動UART時發生錯誤: {str(e)}')
+        return jsonify({'success': False, 'message': f'啟動UART時發生錯誤: {str(e)}'})
+
+@app.route('/api/uart/stop', methods=['POST'])
+def stop_uart():
+    logging.info(f'API: 停止UART讀取, remote_addr={request.remote_addr}')
+    try:
+        uart_reader.stop_reading()
+        return jsonify({'success': True, 'message': 'UART讀取已停止'})
+    except Exception as e:
+        logging.exception(f'停止UART時發生錯誤: {str(e)}')
+        return jsonify({'success': False, 'message': f'停止UART時發生錯誤: {str(e)}'})
+
+@app.route('/api/uart/clear', methods=['POST'])
+def clear_uart_data():
+    """API: 清除UART資料"""
+    try:
+        uart_reader.clear_data()
+        return jsonify({'success': True, 'message': 'UART資料已清除'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'清除UART資料時發生錯誤: {str(e)}'})
+
+@app.route('/api/uart/diagnostic', methods=['POST'])
+def uart_diagnostic():
+    """API: 執行UART診斷"""
+    try:
+        import subprocess
+        
+        # 執行診斷腳本
+        diagnostic_script = os.path.join(os.path.dirname(__file__), 'uart_diagnostic.py')
+        
+        if os.path.exists(diagnostic_script):
+            result = subprocess.run([sys.executable, diagnostic_script], 
+                                  capture_output=True, text=True, timeout=30)
+            
+            diagnostic_output = result.stdout
+            if result.stderr:
+                diagnostic_output += f"\n錯誤輸出:\n{result.stderr}"
+                
+            return jsonify({
+                'success': True,
+                'diagnostic_output': diagnostic_output,
+                'return_code': result.returncode
+            })
+        else:
+            # 如果診斷腳本不存在，執行基本診斷
+            com_port, baud_rate, _, _, _, _ = uart_reader.get_uart_config()
+            available_ports = uart_reader.list_available_ports()
+            
+            diagnostic_info = f"""UART基本診斷報告
+{'='*40}
+
+配置信息:
+  端口: {com_port}
+  波特率: {baud_rate}
+
+設備檢查:
+  配置的設備是否存在: {'是' if os.path.exists(com_port) else '否'}
+
+可用串口:"""
+            
+            if available_ports:
+                for port in available_ports:
+                    diagnostic_info += f"\n  {port['device']} - {port['description']}"
+            else:
+                diagnostic_info += "\n  沒有找到可用串口"
+                
+            diagnostic_info += f"""
+
+建議檢查:
+  1. 檢查硬體連接
+  2. 檢查設備權限: sudo chmod 666 {com_port}
+  3. 加入用戶群組: sudo usermod -a -G dialout $USER
+  4. 重新載入驅動: sudo modprobe ftdi_sio
+  5. 檢查USB設備: lsusb
+  6. 查看系統日誌: dmesg | tail
+"""
+            
+            return jsonify({
+                'success': True,
+                'diagnostic_output': diagnostic_info
+            })
+            
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'message': '診斷超時'})
+    except Exception as e:
+        logging.exception(f'UART診斷失敗: {str(e)}')
+        return jsonify({'success': False, 'message': f'診斷執行失敗: {str(e)}'})
+
+@app.route('/api/uart/stream')
+def uart_stream():
+    """API: Server-Sent Events 串流UART資料，推送所有新資料"""
+    def generate():
+        # 只推送新進來的資料
+        last_index = len(uart_reader.get_latest_data())
+        while True:
+            try:
+                data = uart_reader.get_latest_data()
+                if data and last_index < len(data):
+                    new_data = data[last_index:]
+                    for d in new_data:
+                        yield f"data: {json.dumps(d, ensure_ascii=False)}\n\n"
+                    last_index = len(data)
+                time.sleep(0.5)
+            except Exception as e:
+                yield f"data: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
+                time.sleep(2)
+    return Response(generate(), mimetype='text/event-stream')
+
+# ====== FTP相關API ======
+
+@app.route('/api/ftp/upload', methods=['POST'])
+def ftp_manual_upload():
+    logging.info(f'API: 手動觸發FTP上傳, remote_addr={request.remote_addr}')
+    try:
+        if 'protocol_manager' in globals() and protocol_manager.active == 'FTP':
+            ftp_receiver = protocol_manager.protocols['FTP']
+            # 觸發立即上傳
+            ftp_receiver._upload_data()
+            return jsonify({'success': True, 'message': 'FTP上傳已觸發'})
+        else:
+            return jsonify({'success': False, 'message': 'FTP協定未啟用'})
+    except Exception as e:
+        logging.exception(f'FTP上傳失敗: {str(e)}')
+        return jsonify({'success': False, 'message': f'FTP上傳失敗: {str(e)}'})
+
+@app.route('/api/ftp/status')
+def ftp_status():
+    """API: 獲取FTP狀態"""
+    try:
+        if 'protocol_manager' in globals() and protocol_manager.active == 'FTP':
+            ftp_receiver = protocol_manager.protocols['FTP']
+            return jsonify({
+                'success': True,
+                'is_running': ftp_receiver.is_running,
+                'data_count': len(ftp_receiver.get_latest_data()),
+                'last_upload_time': ftp_receiver.last_upload_time,
+                'upload_interval': ftp_receiver.upload_interval
+            })
+        else:
+            return jsonify({'success': False, 'message': 'FTP協定未啟用'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': f'獲取FTP狀態失敗: {str(e)}'})
+
+@app.route('/api/ftp/local/start', methods=['POST'])
+def local_ftp_start():
+    """API: 啟動本地FTP測試伺服器"""
+    success, message = local_ftp_server.start_server()
+    return jsonify({'success': success, 'message': message})
+
+@app.route('/api/ftp/local/stop', methods=['POST'])
+def local_ftp_stop():
+    """API: 停止本地FTP測試伺服器"""
+    success, message = local_ftp_server.stop_server()
+    return jsonify({'success': success, 'message': message})
+
+@app.route('/api/ftp/local/status')
+def local_ftp_status():
+    """API: 獲取本地FTP測試伺服器狀態"""
+    status = local_ftp_server.get_status()
+    return jsonify(status)
+
+@app.route('/api/ftp/local/update-config', methods=['POST'])
+def local_ftp_update_config():
+    """API: 更新config.json為本地FTP測試伺服器設定"""
+    success, message = local_ftp_server.update_config_for_test()
+    return jsonify({'success': success, 'message': message})
+
+@app.route('/api/ftp/test-connection', methods=['POST'])
+def ftp_test_connection():
+    logging.info(f'API: 測試FTP連接, remote_addr={request.remote_addr}, data={request.get_json(silent=True)}')
+    try:
+        import ftplib
+        import socket
+        
+        config = config_manager.get_protocol_config('FTP')
+        host = config.get('host', 'localhost')
+        port = config.get('port', 21)
+        username = config.get('username', '')
+        password = config.get('password', '')
+        passive_mode = config.get('passive_mode', True)
+        
+        # 測試TCP連接
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(10)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        
+        if result != 0:
+            return jsonify({'success': False, 'message': f'無法連接到 {host}:{port}'})
+        
+        # 測試FTP連接
+        ftp = ftplib.FTP()
+        ftp.connect(host, port, timeout=30)
+        
+        if passive_mode:
+            ftp.set_pasv(True)
+            
+        ftp.login(username, password)
+        
+        # 測試目錄存取
+        remote_dir = config.get('remote_dir', '/')
+        ftp.cwd(remote_dir)
+        files = ftp.nlst()
+        
+        ftp.quit()
+        
+        return jsonify({
+            'success': True, 
+            'message': f'FTP連接成功，目錄中有 {len(files)} 個檔案'
+        })
+        
+    except ftplib.error_perm as e:
+        return jsonify({'success': False, 'message': f'認證失敗: {str(e)}'})
+    except Exception as e:
+        logging.exception(f'FTP連接失敗: {str(e)}')
+        return jsonify({'success': False, 'message': f'連接失敗: {str(e)}'})
+
+@app.route('/api/ftp/test-upload', methods=['POST'])
+def ftp_test_upload():
+    logging.info(f'API: 測試FTP檔案上傳, remote_addr={request.remote_addr}, data={request.get_json(silent=True)}')
+    try:
+        import ftplib
+        from io import BytesIO
+        
+        config = config_manager.get_protocol_config('FTP')
+        host = config.get('host', 'localhost')
+        port = config.get('port', 21)
+        username = config.get('username', '')
+        password = config.get('password', '')
+        passive_mode = config.get('passive_mode', True)
+        remote_dir = config.get('remote_dir', '/')
+        
+        # 連接FTP
+        ftp = ftplib.FTP()
+        ftp.connect(host, port, timeout=30)
+        
+        if passive_mode:
+            ftp.set_pasv(True)
+            
+        ftp.login(username, password)
+        ftp.cwd(remote_dir)
+        
+        # 生成測試檔案
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"test_upload_{timestamp}.json"
+        
+        test_data = {
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'test_type': 'web_interface_test',
+            'message': '這是透過Web介面測試上傳的檔案'
+        }
+        
+        # 上傳檔案
+        data_stream = BytesIO(json.dumps(test_data, ensure_ascii=False, indent=2).encode('utf-8'))
+        ftp.storbinary(f'STOR {filename}', data_stream)
+        
+        # 驗證檔案
+        files = ftp.nlst()
+        if filename in files:
+            file_size = ftp.size(filename)
+            ftp.quit()
+            return jsonify({
+                'success': True, 
+                'message': f'測試檔案上傳成功: {filename} ({file_size} bytes)'
+            })
+        else:
+            ftp.quit()
+            return jsonify({'success': False, 'message': '檔案上傳後未找到'})
+            
+    except ftplib.error_perm as e:
+        return jsonify({'success': False, 'message': f'上傳權限不足: {str(e)}'})
+    except Exception as e:
+        logging.exception(f'FTP檔案上傳失敗: {str(e)}')
+        return jsonify({'success': False, 'message': f'上傳失敗: {str(e)}'})
+
+# ====== 系統狀態API ======
+
+@app.route('/api/system/status')
+def system_status():
+    """API: 獲取系統狀態，包括網路和離線模式"""
+    try:
+        # 使用網路檢查器獲取狀態
+        network_status = network_checker.get_network_status()
+        offline_mode = config_manager.get('offline_mode', False)
+        
+        return jsonify({
+            'success': True,
+            'network_status': network_status,
+            'offline_mode': offline_mode,
+            'current_mode': current_mode['mode'],
+            'system_info': {
+                'platform': sys.platform,
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False, 
+            'message': f'獲取系統狀態失敗: {str(e)}',
+            'offline_mode': True,
+            'network_status': {
+                'internet_available': False,
+                'local_network_available': False,
+                'default_gateway': None,
+                'platform': sys.platform
+            }
+        })
+
+@app.route('/api/system/offline-mode', methods=['POST'])
+def toggle_offline_mode():
+    """API: 切換離線模式"""
+    try:
+        data = request.get_json() or {}
+        offline_mode = data.get('offline_mode')
+        
+        if offline_mode is None:
+            # 如果沒有指定，則切換模式
+            offline_mode = not config_manager.get('offline_mode', False)
+        
+        if offline_mode:
+            offline_mode_manager.enable_offline_mode()
+        else:
+            offline_mode_manager.disable_offline_mode()
+        
+        return jsonify({
+            'success': True,
+            'offline_mode': offline_mode,
+            'message': f'已{"啟用" if offline_mode else "停用"}離線模式'
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'切換離線模式失敗: {str(e)}'
+        })
+
+# ====== WiFi相關API ======
+
+@app.route('/api/wifi/scan')
+def scan_wifi():
+    """API: 掃描可用的WiFi網路"""
+    try:
+        logging.info("開始WiFi掃描請求...")
+        wifi_networks = network_checker.scan_wifi_networks()
+        
+        logging.info(f"WiFi掃描完成，找到 {len(wifi_networks)} 個網路")
+        for network in wifi_networks:
+            logging.info(f"網路: {network}")
+            
+        return jsonify({
+            'success': True,
+            'networks': wifi_networks,
+            'count': len(wifi_networks),
+            'platform': sys.platform,
+            'debug_info': {
+                'system': platform.system(),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        })
+    except Exception as e:
+        logging.error(f"WiFi掃描API錯誤: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'WiFi掃描失敗: {str(e)}',
+            'networks': [],
+            'debug_info': {
+                'error': str(e),
+                'system': platform.system(),
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        })
+
+@app.route('/api/wifi/debug')
+def wifi_debug():
+    """API: WiFi掃描調試資訊"""
+    try:
+        import subprocess
+        debug_info = {
+            'system': platform.system(),
+            'platform': sys.platform,
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        if platform.system() == "Windows":
+            # 測試基本的netsh命令
+            try:
+                result = subprocess.run(
+                    ["netsh", "wlan", "show", "interfaces"],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='ignore',
+                    timeout=10
+                )
+                debug_info['interfaces_cmd'] = {
+                    'returncode': result.returncode,
+                    'stdout_length': len(result.stdout) if result.stdout else 0,
+                    'stderr': result.stderr[:500] if result.stderr else None
+                }
+            except Exception as e:
+                debug_info['interfaces_cmd_error'] = str(e)
+            
+            # 測試掃描命令
+            try:
+                result = subprocess.run(
+                    ["netsh", "wlan", "show", "scan"],
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='ignore',
+                    timeout=15
+                )
+                debug_info['scan_cmd'] = {
+                    'returncode': result.returncode,
+                    'stdout_length': len(result.stdout) if result.stdout else 0,
+                    'stderr': result.stderr[:500] if result.stderr else None,
+                    'stdout_preview': result.stdout[:1000] if result.stdout else None
+                }
+            except Exception as e:
+                debug_info['scan_cmd_error'] = str(e)
+        
+        return jsonify({
+            'success': True,
+            'debug_info': debug_info
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'調試資訊獲取失敗: {str(e)}'
+        })
+
+@app.route('/api/wifi/connect', methods=['POST'])
+def connect_wifi():
+    """API: 連接到指定的WiFi網路"""
+    try:
+        data = request.get_json() or {}
+        ssid = data.get('ssid', '').strip()
+        password = data.get('password', '').strip()
+        
+        if not ssid:
+            return jsonify({
+                'success': False,
+                'message': 'SSID不能為空'
+            })
+        
+        # 嘗試連接WiFi
+        success = network_checker.connect_to_wifi(ssid, password)
+        
+        if success:
+            # 連接成功後，等待一段時間再檢查網路狀態
+            time.sleep(3)
+            
+            # 重新檢查網路狀態
+            network_status = network_checker.get_network_status()
+            
+            return jsonify({
+                'success': True,
+                'message': f'已成功連接到 {ssid}',
+                'network_status': network_status
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': f'連接到 {ssid} 失敗，請檢查密碼是否正確'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'WiFi連接過程發生錯誤: {str(e)}'
+        })
+
+@app.route('/api/wifi/current')
+def current_wifi():
+    """API: 獲取當前連接的WiFi資訊"""
+    try:
+        current_wifi_info = network_checker.get_current_wifi_info()
+        return jsonify({
+            'success': True,
+            'current_wifi': current_wifi_info
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'獲取當前WiFi資訊失敗: {str(e)}',
+            'current_wifi': None
+        })
+
+# ====== 主機連接API ======
+
+@app.route('/api/host/save-config', methods=['POST'])
+def save_host_config():
+    """API: 儲存主機連接設定"""
+    try:
+        data = request.get_json() or {}
+        
+        # 驗證必要欄位
+        required_fields = ['target_host', 'target_port']
+        for field in required_fields:
+            if not data.get(field):
+                return jsonify({
+                    'success': False,
+                    'message': f'缺少必要欄位: {field}'
+                })
+        
+        # 驗證端口範圍
+        try:
+            port = int(data['target_port'])
+            if port < 1 or port > 65535:
+                raise ValueError()
+        except (ValueError, TypeError):
+            return jsonify({
+                'success': False,
+                'message': '端口必須是1-65535之間的數字'
+            })
+        
+        # 儲存設定
+        host_settings = {
+            'target_host': data['target_host'].strip(),
+            'target_port': port,
+            'connection_timeout': int(data.get('connection_timeout', 10)),
+            'retry_attempts': int(data.get('retry_attempts', 3)),
+            'protocol': data.get('protocol', 'HTTP')
+        }
+        
+        config_manager.set('host_settings', host_settings)
+        config_manager.save_config()
+        
+        return jsonify({
+            'success': True,
+            'message': '主機連接設定已儲存',
+            'host_settings': host_settings
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'儲存主機設定失敗: {str(e)}'
+        })
+
+@app.route('/api/host/test-connection', methods=['POST'])
+def test_host_connection():
+    """API: 測試主機連接"""
+    try:
+        data = request.get_json() or {}
+        host = data.get('host', 'localhost')
+        port = int(data.get('port', 8000))
+        timeout = int(data.get('timeout', 10))
+        protocol = data.get('protocol', 'HTTP')
+        
+        # 測試連接
+        success, message = test_connection_to_host(host, port, timeout, protocol)
+        
+        return jsonify({
+            'success': success,
+            'message': message,
+            'connection_info': {
+                'host': host,
+                'port': port,
+                'protocol': protocol,
+                'tested_at': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'連接測試失敗: {str(e)}'
+        })
+
+def test_connection_to_host(host, port, timeout, protocol):
+    """測試到指定主機的連接"""
+    try:
+        if protocol.upper() == 'HTTP':
+            # HTTP連接測試
+            import urllib.request
+            import urllib.error
+            
+            url = f"http://{host}:{port}"
+            try:
+                req = urllib.request.Request(url, method='HEAD')
+                with urllib.request.urlopen(req, timeout=timeout) as response:
+                    return True, f"HTTP連接成功 - 狀態碼: {response.status}"
+            except urllib.error.HTTPError as e:
+                if e.code < 500:  # 4xx錯誤通常表示服務器在運行
+                    return True, f"HTTP連接成功 - 狀態碼: {e.code}"
+                else:
+                    return False, f"HTTP連接失敗 - 狀態碼: {e.code}"
+            except urllib.error.URLError:
+                return False, f"HTTP連接失敗 - 無法連接到 {host}:{port}"
+                
+        elif protocol.upper() == 'HTTPS':
+            # HTTPS連接測試
+            import urllib.request
+            import urllib.error
+            import ssl
+            
+            # 創建不驗證SSL證書的context（用於測試）
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            
+            url = f"https://{host}:{port}"
+            try:
+                req = urllib.request.Request(url, method='HEAD')
+                with urllib.request.urlopen(req, timeout=timeout, context=ctx) as response:
+                    return True, f"HTTPS連接成功 - 狀態碼: {response.status}"
+            except urllib.error.HTTPError as e:
+                if e.code < 500:
+                    return True, f"HTTPS連接成功 - 狀態碼: {e.code}"
+                else:
+                    return False, f"HTTPS連接失敗 - 狀態碼: {e.code}"
+            except urllib.error.URLError:
+                return False, f"HTTPS連接失敗 - 無法連接到 {host}:{port}"
+                
+        else:
+            # TCP連接測試
+            import socket
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(timeout)
+            
+            result = sock.connect_ex((host, port))
+            sock.close()
+            
+            if result == 0:
+                return True, f"TCP連接成功 - 主機 {host}:{port} 可達"
+            else:
+                return False, f"TCP連接失敗 - 無法連接到 {host}:{port}"
+                
+    except Exception as e:
+        return False, f"連接測試異常: {str(e)}"
+
+# ====== 模式管理API ======
+
+@app.route('/get-mode', methods=['GET'])
+def get_mode():
+    return jsonify({'mode': current_mode['mode']})
+
+@app.route('/set-mode', methods=['POST'])
+def set_mode():
+    data = request.get_json()
+    mode = data.get('mode')
+    if mode in ['idle', 'work']:
+        old_mode = current_mode['mode']
+        current_mode['mode'] = mode
+        
+        # 如果切換到工作模式，自動啟動已設定的協定
+        activated_protocol = None
+        if mode == 'work' and old_mode != 'work':
+            try:
+                # 獲取已設定的協定
+                configured_protocols = []
+                for protocol in config_manager.get_supported_protocols():
+                    if config_manager.is_protocol_configured(protocol):
+                        configured_protocols.append(protocol)
+                
+                # 如果有已設定的協定，啟動第一個
+                if configured_protocols:
+                    active_protocol = configured_protocols[0]
+                    config_manager.set_active_protocol(active_protocol)
+                    activated_protocol = active_protocol
+                    
+                    # 嘗試啟動協定
+                    try:
+                        if 'protocol_manager' in globals():
+                            protocol_manager.start(active_protocol)
+                        logging.info(f"工作模式啟動協定: {active_protocol}")
+                    except Exception as e:
+                        logging.warning(f"啟動協定 {active_protocol} 失敗: {e}")
+                        
+            except Exception as e:
+                logging.error(f"工作模式自動啟動協定失敗: {e}")
+        
+        # 取得目前啟用的協定
+        current_active = config_manager.get_active_protocol()
+        
+        return jsonify({
+            'mode': mode, 
+            'success': True,
+            'active_protocol': current_active,
+            'activated_protocol': activated_protocol  # 本次切換啟動的協定
+        })
+    return jsonify({'success': False, 'msg': '無效模式'}), 400
 
 # ====== 錯誤處理 ======
 

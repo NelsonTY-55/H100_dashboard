@@ -40,10 +40,11 @@ class ConfigValidator:
                                 "parity": {"type": "string", "enum": ["N", "E", "O", "M", "S"]},
                                 "stopbits": {"type": "number", "enum": [1, 1.5, 2]},
                                 "bytesize": {"type": "integer", "enum": [5, 6, 7, 8]},
-                                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60}
+                                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60},
+                                "configured": {"type": "boolean"}
                             },
                             "required": ["com_port", "baud_rate"],
-                            "additionalProperties": False
+                            "additionalProperties": True
                         },
                         "MQTT": {
                             "type": "object",
@@ -54,10 +55,11 @@ class ConfigValidator:
                                 "username": {"type": "string"},
                                 "password": {"type": "string"},
                                 "keepalive": {"type": "integer", "minimum": 10, "maximum": 3600},
-                                "qos": {"type": "integer", "enum": [0, 1, 2]}
+                                "qos": {"type": "integer", "enum": [0, 1, 2]},
+                                "configured": {"type": "boolean"}
                             },
                             "required": ["broker", "port", "topic"],
-                            "additionalProperties": False
+                            "additionalProperties": True
                         },
                         "RTU": {
                             "type": "object",
@@ -67,10 +69,11 @@ class ConfigValidator:
                                 "parity": {"type": "string", "enum": ["N", "E", "O", "M", "S"]},
                                 "stopbits": {"type": "number", "enum": [1, 1.5, 2]},
                                 "bytesize": {"type": "integer", "enum": [5, 6, 7, 8]},
-                                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60}
+                                "timeout": {"type": "number", "minimum": 0.1, "maximum": 60},
+                                "configured": {"type": "boolean"}
                             },
                             "required": ["com_port", "baud_rate"],
-                            "additionalProperties": False
+                            "additionalProperties": True
                         },
                         "FTP": {
                             "type": "object",
@@ -80,10 +83,11 @@ class ConfigValidator:
                                 "username": {"type": "string"},
                                 "password": {"type": "string"},
                                 "remote_dir": {"type": "string"},
-                                "passive_mode": {"type": "boolean"}
+                                "passive_mode": {"type": "boolean"},
+                                "configured": {"type": "boolean"}
                             },
                             "required": ["host", "username", "password"],
-                            "additionalProperties": False
+                            "additionalProperties": True
                         },
                         "FastAPI": {
                             "type": "object",
@@ -91,10 +95,11 @@ class ConfigValidator:
                                 "host": {"type": "string"},
                                 "port": {"type": "integer", "minimum": 1, "maximum": 65535},
                                 "endpoint": {"type": "string"},
-                                "timeout": {"type": "number", "minimum": 1, "maximum": 300}
+                                "timeout": {"type": "number", "minimum": 1, "maximum": 300},
+                                "configured": {"type": "boolean"}
                             },
                             "required": ["host", "port", "endpoint"],
-                            "additionalProperties": False
+                            "additionalProperties": True
                         },
                         "TCP": {
                             "type": "object",
@@ -102,13 +107,14 @@ class ConfigValidator:
                                 "host": {"type": "string"},
                                 "port": {"type": "integer", "minimum": 1, "maximum": 65535},
                                 "timeout": {"type": "number", "minimum": 1, "maximum": 60},
-                                "retry_count": {"type": "integer", "minimum": 1, "maximum": 10}
+                                "retry_count": {"type": "integer", "minimum": 1, "maximum": 10},
+                                "configured": {"type": "boolean"}
                             },
                             "required": ["host", "port"],
-                            "additionalProperties": False
+                            "additionalProperties": True
                         }
                     },
-                    "additionalProperties": False
+                    "additionalProperties": True
                 },
                 "offline_mode": {"type": "boolean"},
                 "data_retention_days": {"type": "integer", "minimum": 1, "maximum": 365},

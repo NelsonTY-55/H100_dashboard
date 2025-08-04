@@ -401,7 +401,7 @@
         // 載入所有設備資訊
         async function loadAllDevices() {
             try {
-                const response = await fetch('/api/dashboard/devices');
+                const response = await fetch('http://localhost:5001/api/dashboard/devices');
                 const data = await response.json();
                 
                 if (data.success) {
@@ -739,7 +739,7 @@
         // 獲取並更新統計資料
         async function updateStats() {
             try {
-                const response = await fetch('/api/dashboard/stats');
+                const response = await fetch('http://localhost:5001/api/dashboard/stats');
                 const data = await response.json();
                 
                 if (data.success) {
@@ -775,7 +775,7 @@
         // 專門的 UART 狀態更新函式（更頻繁的更新）
         async function updateUartStatus() {
             try {
-                const response = await fetch('/api/uart/status');
+                const response = await fetch('http://localhost:5001/api/uart/status');
                 const data = await response.json();
                 
                 if (data.success) {
@@ -858,7 +858,7 @@
         // 顯示除錯信息
         async function showDebugInfo() {
             try {
-                const response = await fetch('/api/uart/status');
+                const response = await fetch('http://localhost:5001/api/uart/status');
                 const data = await response.json();
                 
                 let debugInfo = `=== 系統除錯信息 ===\n\n`;
@@ -1282,7 +1282,7 @@
                 const controller = new AbortController();
                 const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超時
                 
-                const response = await fetch(`/api/dashboard/chart-data?${params}`, {
+                const response = await fetch(`http://localhost:5001/api/dashboard/chart-data?${params}`, {
                     signal: controller.signal
                 });
                 clearTimeout(timeoutId);

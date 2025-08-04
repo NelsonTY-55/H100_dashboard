@@ -366,7 +366,7 @@
             try {
                 document.getElementById('channelInfo').innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>載入頻道資訊中...';
                 
-                const response = await fetch(`/api/uart/mac-channels/${macId}`);
+                const response = await fetch(`http://localhost:5001/api/uart/mac-channels/${macId}`);
                 if (response.ok) {
                     const data = await response.json();
                     console.log('頻道 API 響應:', data);
@@ -490,7 +490,7 @@
                     await loadDeviceByMacId(targetMacId);
                 } else {
                     // 沒有指定 MAC ID，載入一般設定
-                    const response = await fetch('/api/device-settings');
+                    const response = await fetch('http://localhost:5001/api/device-settings');
                     if (response.ok) {
                         const data = await response.json();
                         if (data.success) {
@@ -547,7 +547,7 @@
         async function loadDeviceByMacId(macId) {
             try {
                 // 先從設備 API 獲取該設備的詳細資訊
-                const devicesResponse = await fetch('/api/dashboard/devices');
+                const devicesResponse = await fetch('http://localhost:5001/api/dashboard/devices');
                 if (!devicesResponse.ok) {
                     throw new Error('無法獲取設備列表');
                 }
@@ -635,7 +635,7 @@
                 alert(`載入設備設定失敗: ${error.message}\n\n將改為載入一般設定。`);
                 
                 // 載入失敗時，回到一般設定載入模式
-                const response = await fetch('/api/device-settings');
+                const response = await fetch('http://localhost:5001/api/device-settings');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.success) {
@@ -660,7 +660,7 @@
                 
                 // 添加時間戳防止快取，並設置較短的超時時間
                 const timestamp = new Date().getTime();
-                const response = await fetch(`/api/uart/mac-ids?t=${timestamp}`, {
+                const response = await fetch(`http://localhost:5001/api/uart/mac-ids?t=${timestamp}`, {
                     method: 'GET',
                     cache: 'no-cache',
                     headers: {
@@ -795,7 +795,7 @@
                 statusElement.className = 'text-info ms-2';
                 
                 // 測試 UART 狀態 API
-                const response = await fetch('/api/uart/status', {
+                const response = await fetch('http://localhost:5001/api/uart/status', {
                     method: 'GET',
                     cache: 'no-cache'
                 });
@@ -1048,7 +1048,7 @@
             };
 
             try {
-                const response = await fetch('/api/device-settings', {
+                const response = await fetch('http://localhost:5001/api/device-settings', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'

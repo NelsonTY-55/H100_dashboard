@@ -9,26 +9,25 @@ from datetime import datetime
 from config_manager import ConfigManager
 import paho.mqtt.client as mqtt
 
-# 嘗試導入新版pymodbus API，如果失敗則使用舊版或跳過
+# 嘗試導入 pymodbus API
 try:
-    from pymodbus.server import StartSerialServer, StartTcpServer
+    from pymodbus.server.sync import StartSerialServer, StartTcpServer
     from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
     MODBUS_AVAILABLE = True
-except ImportError:
-    try:
-        from pymodbus.server.sync import StartSerialServer, StartTcpServer
-        from pymodbus.datastore import ModbusSequentialDataBlock, ModbusSlaveContext, ModbusServerContext
-        MODBUS_AVAILABLE = True
-    except ImportError:
-        print("警告: pymodbus 模組不可用，Modbus 功能將被禁用")
-        MODBUS_AVAILABLE = False
-        StartSerialServer = None
-        StartTcpServer = None
-        ModbusSequentialDataBlock = None
-        ModbusSlaveContext = None
-        ModbusServerContext = None
+except ImportError as e:
+    print(f"警告: pymodbus 模組不可用，Modbus 功能將被禁用: {e}")
+    MODBUS_AVAILABLE = False
+    StartSerialServer = None
+    StartTcpServer = None
+    ModbusSequentialDataBlock = None
+    ModbusSlaveContext = None
+    ModbusServerContext = None
 
 import logging
+
+# 在 logging 導入後記錄成功資訊
+if MODBUS_AVAILABLE:
+    logging.info("成功載入 pymodbus 2.5.3 同步 API")
 
 class UARTReader:
     def __init__(self):
@@ -563,6 +562,7 @@ class TCPReceiver:
         self.register_block_size = 12  # 4(MAC)+8(channel)
         self.max_devices = 10
         self.lock = threading.Lock()
+        self.server_instance = None  # 保存服務器實例
         
         if MODBUS_AVAILABLE:
             self.store = ModbusSlaveContext(
@@ -575,34 +575,158 @@ class TCPReceiver:
             logging.warning("Modbus 功能不可用，TCP協定將被禁用")
             
         self.server_thread = None
+        
+    def _check_port_available(self, host, port):
+        """檢查端口是否可用"""
+        import socket
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex((host, port))
+            sock.close()
+            return result != 0  # 如果連接失敗，表示端口可用
+        except Exception as e:
+            logging.warning(f"[TCP] 檢查端口時發生錯誤: {e}")
+            return False
+            
+    def _find_available_port(self, host, start_port, max_attempts=10):
+        """尋找可用的端口"""
+        for i in range(max_attempts):
+            port = start_port + i
+            if self._check_port_available(host, port):
+                return port
+        return None
+        
     def start(self):
         if self.is_running:
+            logging.warning("[TCP] TCP接收器已在運行中")
             return
             
         if not MODBUS_AVAILABLE:
             logging.error("[TCP] 無法啟動TCP服務：pymodbus 模組不可用")
             return
             
-        self.is_running = True
         # 強制重新載入配置，確保使用最新設定
         self.config_manager.load_config()
         config = self.config_manager.get_protocol_config('TCP')
         tcp_host = config.get('host', '0.0.0.0')
-        tcp_port = config.get('port', 502)
+        tcp_port = config.get('port', 5020)  # 改用 5020 作為預設端口
+        
+        # 檢查端口是否可用
+        if not self._check_port_available(tcp_host, tcp_port):
+            logging.warning(f"[TCP] 端口 {tcp_port} 已被占用，嘗試尋找可用端口...")
+            available_port = self._find_available_port(tcp_host, tcp_port)
+            if available_port:
+                tcp_port = available_port
+                logging.info(f"[TCP] 使用替代端口: {tcp_port}")
+                # 更新配置中的端口
+                config['port'] = tcp_port
+                self.config_manager.update_protocol_config('TCP', config)
+            else:
+                logging.error(f"[TCP] 無法找到可用端口，啟動失敗")
+                return
+        
+        self.is_running = True
+        
         def run_server():
             try:
-                StartTcpServer(self.context, address=(tcp_host, tcp_port))
+                # 嘗試啟動服務器
+                logging.info(f"[TCP] 正在啟動 TCP 服務器於 {tcp_host}:{tcp_port}...")
+                
+                # 使用 pymodbus 2.5.3 同步 API
+                StartTcpServer(
+                    context=self.context, 
+                    address=(tcp_host, tcp_port)
+                )
+                    
                 logging.info(f"[TCP] TCP伺服器啟動成功，host={tcp_host}, port={tcp_port}")
+                
+            except OSError as os_error:
+                if "10048" in str(os_error) or "Address already in use" in str(os_error):
+                    logging.error(f"[TCP] 端口 {tcp_port} 被占用: {os_error}")
+                    logging.error(f"[TCP] 請檢查是否有其他程序在使用此端口，或重新啟動應用程式")
+                    
+                    # 嘗試釋放端口並重試
+                    self._cleanup_port(tcp_host, tcp_port)
+                    
+                else:
+                    logging.error(f"[TCP] 網路錯誤: {os_error}")
+                    
+                self.is_running = False
+                
             except Exception as e:
                 logging.exception(f"[TCP] Server啟動失敗: {e}")
+                self.is_running = False
+                
+            except Exception as e:
+                logging.exception(f"[TCP] Server啟動失敗: {e}")
+                self.is_running = False
+                
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
         logging.info(f"[TCP] 啟動TCP接收器，host={tcp_host}, port={tcp_port}")
+        
+    def _cleanup_port(self, host, port):
+        """嘗試清理占用的端口"""
+        try:
+            import socket
+            import time
+            
+            logging.info(f"[TCP] 嘗試清理端口 {port}...")
+            
+            # 創建socket並設置SO_REUSEADDR
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            
+            try:
+                sock.bind((host, port))
+                sock.close()
+                logging.info(f"[TCP] 端口 {port} 清理成功")
+                time.sleep(1)  # 等待端口完全釋放
+            except Exception as e:
+                logging.warning(f"[TCP] 無法清理端口 {port}: {e}")
+            finally:
+                try:
+                    sock.close()
+                except:
+                    pass
+                    
+        except Exception as e:
+            logging.warning(f"[TCP] 清理端口時發生錯誤: {e}")
+            
     def stop(self):
+        """停止TCP服務器"""
         self.is_running = False
+        
+        # 嘗試關閉服務器實例
+        if self.server_instance:
+            try:
+                if hasattr(self.server_instance, 'shutdown'):
+                    self.server_instance.shutdown()
+                elif hasattr(self.server_instance, 'server_close'):
+                    self.server_instance.server_close()
+                logging.info("[TCP] TCP服務器已關閉")
+            except Exception as e:
+                logging.warning(f"[TCP] 關閉服務器時發生錯誤: {e}")
+            finally:
+                self.server_instance = None
+        
+        # 等待服務器線程結束
+        if self.server_thread and self.server_thread.is_alive():
+            try:
+                self.server_thread.join(timeout=5)
+                if self.server_thread.is_alive():
+                    logging.warning("[TCP] 服務器線程未能正常結束")
+            except Exception as e:
+                logging.warning(f"[TCP] 等待服務器線程結束時發生錯誤: {e}")
+        
         logging.info("[TCP] 停止TCP接收器")
+        
     def get_latest_data(self):
-        return self.store.getValues(3, 0, 1000)
+        if self.store:
+            return self.store.getValues(3, 0, 1000)
+        return []
+        
     def update_registers(self, data_entry):
         mac = data_entry.get('mac_id', '')
         channel = data_entry.get('channel', 0)
@@ -866,10 +990,21 @@ class RTUReceiver:
         self.server_params = (com_port, baud_rate, parity, stopbits, bytesize)
         def run_server():
             try:
-                StartSerialServer(self.context, port=com_port, baudrate=baud_rate, parity=parity, stopbits=stopbits, bytesize=bytesize, method='rtu')
+                # 使用 pymodbus 2.5.3 同步 API
+                StartSerialServer(
+                    self.context, 
+                    port=com_port, 
+                    baudrate=baud_rate, 
+                    parity=parity, 
+                    stopbits=stopbits, 
+                    bytesize=bytesize, 
+                    method='rtu'
+                )
+                        
                 logging.info(f"[RTU] Server啟動成功，port={com_port}, baudrate={baud_rate}")
             except Exception as e:
                 logging.exception(f"[RTU] Server啟動失敗: {e}")
+                self.is_running = False
         self.server_thread = threading.Thread(target=run_server, daemon=True)
         self.server_thread.start()
         logging.info(f"[RTU] 啟動RTU接收器，port={com_port}, baudrate={baud_rate}")
@@ -935,22 +1070,185 @@ class ProtocolManager:
             'RTU': RTUReceiver(self.config_manager)
         }
         self.active = None
+        self.last_error = None
+        
     def start(self, protocol):
-        # 停止其他協定
+        """啟動指定協定，包含錯誤處理和端口管理"""
+        try:
+            # 記錄啟動嘗試
+            logging.info(f"[ProtocolManager] 嘗試啟動協定: {protocol}")
+            
+            # 檢查協定是否支援
+            if protocol not in self.protocols:
+                error_msg = f"不支援的協定: {protocol}"
+                logging.warning(f"[ProtocolManager] {error_msg}")
+                self.last_error = error_msg
+                return False
+            
+            # 停止其他協定
+            self._stop_all_protocols(exclude=protocol)
+            
+            # 特殊處理需要端口的協定
+            if protocol in ['TCP', 'RTU']:
+                if not self._check_and_prepare_port(protocol):
+                    return False
+            
+            # 啟動指定協定
+            try:
+                self.protocols[protocol].start()
+                
+                # 驗證啟動是否成功
+                import time
+                time.sleep(1)  # 等待一秒讓服務完全啟動
+                
+                if hasattr(self.protocols[protocol], 'is_running'):
+                    if not self.protocols[protocol].is_running:
+                        error_msg = f"{protocol} 協定啟動失敗 - is_running = False"
+                        logging.error(f"[ProtocolManager] {error_msg}")
+                        self.last_error = error_msg
+                        return False
+                
+                self.active = protocol
+                self.last_error = None
+                logging.info(f"[ProtocolManager] 成功啟用協定: {protocol}")
+                return True
+                
+            except Exception as e:
+                error_msg = f"啟動 {protocol} 協定時發生錯誤: {str(e)}"
+                logging.exception(f"[ProtocolManager] {error_msg}")
+                self.last_error = error_msg
+                return False
+                
+        except Exception as e:
+            error_msg = f"協定管理器啟動 {protocol} 時發生未預期錯誤: {str(e)}"
+            logging.exception(f"[ProtocolManager] {error_msg}")
+            self.last_error = error_msg
+            return False
+    
+    def _stop_all_protocols(self, exclude=None):
+        """停止所有協定，可排除指定協定"""
         for name, receiver in self.protocols.items():
-            if hasattr(receiver, 'stop'):
-                receiver.stop()
-        # 啟動指定協定
-        if protocol in self.protocols:
-            self.protocols[protocol].start()
-            self.active = protocol
-            logging.info(f"[ProtocolManager] 啟用協定: {protocol}")
-        else:
-            logging.warning(f"[ProtocolManager] 不支援的協定: {protocol}")
+            if name != exclude and hasattr(receiver, 'stop'):
+                try:
+                    receiver.stop()
+                    logging.info(f"[ProtocolManager] 已停止協定: {name}")
+                except Exception as e:
+                    logging.warning(f"[ProtocolManager] 停止協定 {name} 時發生錯誤: {e}")
+    
+    def _check_and_prepare_port(self, protocol):
+        """檢查和準備協定所需的端口"""
+        try:
+            config = self.config_manager.get_protocol_config(protocol)
+            
+            if protocol == 'TCP':
+                host = config.get('host', '0.0.0.0')
+                port = config.get('port', 5020)
+                
+                # 檢查端口是否可用
+                from port_manager import PortManager
+                
+                if not PortManager.check_port_available(host, port):
+                    logging.warning(f"[ProtocolManager] TCP 端口 {host}:{port} 被占用，嘗試清理...")
+                    
+                    # 嘗試清理端口
+                    if PortManager.cleanup_port(host, port):
+                        logging.info(f"[ProtocolManager] TCP 端口 {port} 清理成功")
+                    else:
+                        # 尋找替代端口
+                        alternative_port = PortManager.find_available_port(host, port)
+                        if alternative_port:
+                            logging.info(f"[ProtocolManager] 使用替代 TCP 端口: {alternative_port}")
+                            config['port'] = alternative_port
+                            self.config_manager.update_protocol_config(protocol, config)
+                        else:
+                            error_msg = f"TCP 協定無法找到可用端口（從 {port} 開始）"
+                            logging.error(f"[ProtocolManager] {error_msg}")
+                            self.last_error = error_msg
+                            return False
+            
+            elif protocol == 'RTU':
+                com_port = config.get('com_port', '/dev/ttyUSB1')
+                
+                # 檢查串口是否可用
+                try:
+                    import serial
+                    test_serial = serial.Serial(com_port, timeout=0.1)
+                    test_serial.close()
+                    logging.info(f"[ProtocolManager] RTU 串口 {com_port} 可用")
+                except Exception as e:
+                    error_msg = f"RTU 串口 {com_port} 不可用: {str(e)}"
+                    logging.error(f"[ProtocolManager] {error_msg}")
+                    self.last_error = error_msg
+                    return False
+            
+            return True
+            
+        except Exception as e:
+            error_msg = f"檢查 {protocol} 協定端口時發生錯誤: {str(e)}"
+            logging.exception(f"[ProtocolManager] {error_msg}")
+            self.last_error = error_msg
+            return False
+    
+    def stop(self, protocol=None):
+        """停止指定協定或所有協定"""
+        try:
+            if protocol:
+                if protocol in self.protocols and hasattr(self.protocols[protocol], 'stop'):
+                    self.protocols[protocol].stop()
+                    if self.active == protocol:
+                        self.active = None
+                    logging.info(f"[ProtocolManager] 已停止協定: {protocol}")
+            else:
+                self._stop_all_protocols()
+                self.active = None
+                logging.info("[ProtocolManager] 已停止所有協定")
+                
+        except Exception as e:
+            logging.exception(f"[ProtocolManager] 停止協定時發生錯誤: {e}")
+    
+    def get_status(self):
+        """獲取協定管理器狀態"""
+        status = {
+            'active_protocol': self.active,
+            'last_error': self.last_error,
+            'protocols': {}
+        }
+        
+        for name, receiver in self.protocols.items():
+            try:
+                if hasattr(receiver, 'get_status'):
+                    protocol_status = receiver.get_status()
+                elif hasattr(receiver, 'is_running'):
+                    protocol_status = {
+                        'is_running': receiver.is_running,
+                        'status': 'running' if receiver.is_running else 'stopped'
+                    }
+                else:
+                    protocol_status = {'status': 'unknown'}
+                    
+                status['protocols'][name] = protocol_status
+                
+            except Exception as e:
+                status['protocols'][name] = {
+                    'status': 'error',
+                    'error': str(e)
+                }
+        
+        return status
+    
     def get_latest_data(self):
-        if self.active and self.active in self.protocols:
-            return self.protocols[self.active].get_latest_data()
-        return []
+        """獲取目前啟用協定的最新資料"""
+        try:
+            if self.active and self.active in self.protocols:
+                return self.protocols[self.active].get_latest_data()
+            return []
+        except Exception as e:
+            logging.warning(f"[ProtocolManager] 獲取資料時發生錯誤: {e}")
+            return []
+    
+    def get_last_error(self):
+        """獲取最後的錯誤訊息"""
+        return self.last_error
 
 # 全域協定管理器實例
 protocol_manager = ProtocolManager()
