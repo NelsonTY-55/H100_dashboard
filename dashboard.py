@@ -61,6 +61,100 @@ def safe_get_uart_data():
         logging.warning(f"獲取UART數據時發生錯誤: {e}")
         return []
 
+def get_uart_data_from_files():
+    """從History資料夾的CSV文件中讀取UART數據"""
+    import csv
+    import glob
+    
+    try:
+        # 獲取當前目錄下的History資料夾
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        history_dir = os.path.join(current_dir, 'History')
+        
+        if not os.path.exists(history_dir):
+            return {
+                'total_count': 0,
+                'latest_data': [],
+                'has_recent_data': False,
+                'message': 'History資料夾不存在'
+            }
+        
+        # 尋找所有的uart_data_*.csv文件
+        csv_pattern = os.path.join(history_dir, 'uart_data_*.csv')
+        csv_files = glob.glob(csv_pattern)
+        
+        if not csv_files:
+            return {
+                'total_count': 0,
+                'latest_data': [],
+                'has_recent_data': False,
+                'message': '沒有找到UART數據文件'
+            }
+        
+        # 按檔案名稱排序，最新的在最後
+        csv_files.sort()
+        
+        all_data = []
+        total_count = 0
+        
+        # 讀取最近幾個文件的數據（最多3個文件）
+        for csv_file in csv_files[-3:]:
+            try:
+                with open(csv_file, 'r', encoding='utf-8') as f:
+                    reader = csv.DictReader(f)
+                    file_data = []
+                    for row in reader:
+                        # 轉換數據格式以匹配原來的結構
+                        data_entry = {
+                            'timestamp': row.get('timestamp', ''),
+                            'mac_id': row.get('mac_id', 'N/A'),
+                            'channel': int(row.get('channel', 0)) if row.get('channel', '').isdigit() else 0,
+                            'parameter': float(row.get('parameter', 0)) if row.get('parameter', '').replace('.', '').replace('-', '').isdigit() else 0,
+                            'unit': row.get('unit', 'N/A')
+                        }
+                        file_data.append(data_entry)
+                        total_count += 1
+                    
+                    all_data.extend(file_data)
+                    logging.info(f"從 {csv_file} 讀取了 {len(file_data)} 筆數據")
+                    
+            except Exception as e:
+                logging.warning(f"讀取文件 {csv_file} 時發生錯誤: {e}")
+                continue
+        
+        # 按時間戳排序，最新的在最後
+        all_data.sort(key=lambda x: x.get('timestamp', ''))
+        
+        # 檢查是否有最近的數據（10分鐘內）
+        has_recent_data = False
+        if all_data:
+            try:
+                latest_timestamp = all_data[-1].get('timestamp', '')
+                if latest_timestamp:
+                    latest_time = datetime.fromisoformat(latest_timestamp.replace('Z', '+00:00'))
+                    current_time = datetime.now()
+                    # 如果最新數據在10分鐘內，認為可能有活躍的UART讀取
+                    if (current_time - latest_time.replace(tzinfo=None)).total_seconds() < 600:
+                        has_recent_data = True
+            except Exception as e:
+                logging.warning(f"檢查數據時間時發生錯誤: {e}")
+        
+        return {
+            'total_count': total_count,
+            'latest_data': all_data,
+            'has_recent_data': has_recent_data,
+            'message': f'從 {len(csv_files)} 個文件中讀取了 {total_count} 筆數據'
+        }
+        
+    except Exception as e:
+        logging.error(f"從文件讀取UART數據時發生錯誤: {e}")
+        return {
+            'total_count': 0,
+            'latest_data': [],
+            'has_recent_data': False,
+            'message': f'讀取數據時發生錯誤: {str(e)}'
+        }
+
 def get_system_stats():
     """獲取系統統計資訊"""
     if PSUTIL_AVAILABLE:
@@ -722,6 +816,231 @@ def status():
         return jsonify({
             'success': False,
             'message': f'狀態檢查失敗: {str(e)}'
+        })
+
+@app.route('/api/uart/status')
+def uart_status():
+    """API: 獲取UART狀態"""
+    try:
+        # 從CSV文件獲取數據狀態
+        data_info = get_uart_data_from_files()
+        
+        # 檢查 uart_reader 是否可用
+        if 'uart_reader' in globals():
+            return jsonify({
+                'success': True,
+                'is_running': uart_reader.is_running,
+                'data_count': data_info['total_count'],
+                'latest_data': data_info['latest_data'][-20:] if data_info['latest_data'] else []
+            })
+        else:
+            # 即使 uart_reader 不可用，也從文件獲取狀態
+            return jsonify({
+                'success': True,
+                'is_running': data_info['has_recent_data'],  # 如果有最近的數據，認為可能在運行
+                'data_count': data_info['total_count'],
+                'latest_data': data_info['latest_data'][-20:] if data_info['latest_data'] else [],
+                'message': '從本地數據文件獲取狀態'
+            })
+    except Exception as e:
+        logging.error(f'獲取UART狀態時發生錯誤: {str(e)}')
+        return jsonify({
+            'success': False, 
+            'message': f'獲取UART狀態時發生錯誤: {str(e)}'
+        })
+
+@app.route('/api/uart/mac-ids', methods=['GET'])
+def get_uart_mac_ids():
+    """API: 獲取UART接收到的MAC ID列表"""
+    try:
+        # 記錄 API 請求
+        logging.info(f'API請求: /api/uart/mac-ids from {request.remote_addr}')
+        
+        # 優先嘗試從 uart_reader 獲取數據
+        data = []
+        data_source = "直接讀取"
+        
+        if 'uart_reader' in globals() and uart_reader and hasattr(uart_reader, 'get_latest_data'):
+            try:
+                data = uart_reader.get_latest_data()
+                if data:
+                    logging.info(f'從uart_reader獲取到 {len(data)} 筆數據')
+                    data_source = "即時數據"
+            except Exception as e:
+                logging.warning(f"從uart_reader獲取數據失敗: {e}")
+        
+        # 如果沒有即時數據，嘗試從文件獲取
+        if not data:
+            logging.info("嘗試從History文件獲取數據")
+            data_info = get_uart_data_from_files()
+            data = data_info['latest_data']
+            data_source = "歷史文件"
+            logging.info(f'從文件獲取到 {len(data)} 筆數據')
+        
+        if not data:
+            logging.info('暫無UART數據')
+            return jsonify({
+                'success': True, 
+                'mac_ids': [], 
+                'message': '暫無UART數據，請先啟動UART讀取或檢查數據文件'
+            })
+        
+        # 從UART數據中提取所有的MAC ID
+        mac_ids = []
+        valid_mac_count = 0
+        
+        for entry in data:
+            mac_id = entry.get('mac_id')
+            if mac_id and mac_id not in ['N/A', '', None]:
+                mac_ids.append(mac_id)
+                valid_mac_count += 1
+        
+        # 去重複並排序
+        unique_mac_ids = sorted(list(set(mac_ids)))
+        
+        # 記錄處理結果
+        logging.info(f'MAC ID 處理結果: 總數據{len(data)}, 有效MAC數據{valid_mac_count}, 唯一MAC ID數{len(unique_mac_ids)}')
+        if unique_mac_ids:
+            logging.info(f'找到的 MAC IDs: {unique_mac_ids}')
+        
+        return jsonify({
+            'success': True,
+            'mac_ids': unique_mac_ids,
+            'total_records': len(data),
+            'valid_mac_records': valid_mac_count,
+            'unique_mac_count': len(unique_mac_ids),
+            'data_source': data_source,
+            'timestamp': datetime.now().isoformat(),
+            'message': f'找到 {len(unique_mac_ids)} 個唯一的 MAC ID (來源: {data_source})'
+        })
+        
+    except Exception as e:
+        error_msg = f'獲取MAC ID列表時發生錯誤: {str(e)}'
+        logging.error(error_msg)
+        return jsonify({
+            'success': False, 
+            'message': error_msg,
+            'mac_ids': [],
+            'timestamp': datetime.now().isoformat()
+        })
+
+@app.route('/api/uart/mac-channels/', methods=['GET'])
+@app.route('/api/uart/mac-channels/<mac_id>', methods=['GET'])
+def get_uart_mac_channels(mac_id=None):
+    """API: 獲取指定MAC ID的通道資訊，或所有MAC ID的通道統計"""
+    try:
+        # 優先嘗試從 uart_reader 獲取數據
+        data = []
+        data_source = "直接讀取"
+        
+        if 'uart_reader' in globals() and uart_reader and hasattr(uart_reader, 'get_latest_data'):
+            try:
+                data = uart_reader.get_latest_data()
+                if data:
+                    data_source = "即時數據"
+            except Exception as e:
+                logging.warning(f"從uart_reader獲取數據失敗: {e}")
+        
+        # 如果沒有即時數據，嘗試從文件獲取
+        if not data:
+            logging.info("嘗試從History文件獲取通道數據")
+            data_info = get_uart_data_from_files()
+            data = data_info['latest_data']
+            data_source = "歷史文件"
+        
+        if not data:
+            return jsonify({
+                'success': True, 
+                'data': {}, 
+                'message': '暫無UART數據，請先啟動UART讀取或檢查數據文件'
+            })
+        
+        # 按MAC ID和通道分組數據
+        mac_channels = {}
+        
+        for entry in data:
+            entry_mac_id = entry.get('mac_id', 'N/A')
+            entry_channel = entry.get('channel', 0)
+            
+            # 如果指定了特定MAC ID，只處理該MAC ID的數據
+            if mac_id and entry_mac_id != mac_id:
+                continue
+            
+            # 跳過無效的MAC ID
+            if entry_mac_id in ['N/A', '', None]:
+                continue
+            
+            # 初始化MAC ID
+            if entry_mac_id not in mac_channels:
+                mac_channels[entry_mac_id] = {
+                    'mac_id': entry_mac_id,
+                    'channels': {},
+                    'total_data_count': 0,
+                    'channel_count': 0
+                }
+            
+            # 初始化通道
+            if entry_channel not in mac_channels[entry_mac_id]['channels']:
+                mac_channels[entry_mac_id]['channels'][entry_channel] = {
+                    'channel': entry_channel,
+                    'unit': entry.get('unit', 'N/A'),
+                    'data_count': 0,
+                    'latest_value': None,
+                    'latest_timestamp': None
+                }
+                mac_channels[entry_mac_id]['channel_count'] += 1
+            
+            # 更新通道統計
+            channel_info = mac_channels[entry_mac_id]['channels'][entry_channel]
+            channel_info['data_count'] += 1
+            channel_info['latest_value'] = entry.get('parameter', 0)
+            channel_info['latest_timestamp'] = entry.get('timestamp')
+            
+            # 更新MAC ID統計
+            mac_channels[entry_mac_id]['total_data_count'] += 1
+        
+        # 轉換通道字典為列表並排序
+        for mac_data in mac_channels.values():
+            mac_data['channels'] = sorted(list(mac_data['channels'].values()), key=lambda x: x['channel'])
+        
+        if mac_id:
+            # 如果請求特定MAC ID，直接返回該MAC ID的數據
+            if mac_id in mac_channels:
+                # 提取頻道號碼列表（只返回0-6的頻道，過濾掉頻道7電池電壓）
+                channels = [ch['channel'] for ch in mac_channels[mac_id]['channels'] if ch['channel'] >= 0 and ch['channel'] <= 6]
+                
+                return jsonify({
+                    'success': True,
+                    'mac_id': mac_id,
+                    'channels': sorted(channels),  # 只返回頻道號碼列表
+                    'data': mac_channels[mac_id],  # 完整數據
+                    'data_source': data_source,
+                    'message': f'MAC ID {mac_id} 的通道資訊 (來源: {data_source})'
+                })
+            else:
+                return jsonify({
+                    'success': False,
+                    'mac_id': mac_id,
+                    'channels': [],
+                    'data': {},
+                    'message': f'找不到 MAC ID {mac_id} 的數據'
+                })
+        else:
+            # 返回所有MAC ID的通道統計
+            return jsonify({
+                'success': True,
+                'data': mac_channels,
+                'total_mac_ids': len(mac_channels),
+                'data_source': data_source,
+                'message': f'找到 {len(mac_channels)} 個 MAC ID 的通道資訊 (來源: {data_source})'
+            })
+        
+    except Exception as e:
+        logging.error(f'獲取MAC通道資訊時發生錯誤: {str(e)}')
+        return jsonify({
+            'success': False, 
+            'message': f'獲取MAC通道資訊時發生錯誤: {str(e)}',
+            'data': {}
         })
 
 # ====== 錯誤處理 ======

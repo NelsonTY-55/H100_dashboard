@@ -294,6 +294,40 @@
                 </div>
             </div>
         </div>
+        
+        <!-- 調試面板 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header" data-bs-toggle="collapse" data-bs-target="#debugPanel" style="cursor: pointer;">
+                        <h6 class="mb-0">
+                            <i class="fas fa-bug me-2"></i>調試面板
+                            <small class="text-muted ms-2">(點擊展開/收合)</small>
+                        </h6>
+                    </div>
+                    <div class="collapse" id="debugPanel">
+                        <div class="card-body">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-info-circle me-2"></i>API 狀態</h6>
+                                    <div id="debugApiStatus" class="text-muted">點擊"測試 UART"按鈕獲取狀態</div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h6><i class="fas fa-database me-2"></i>最近的 API 響應</h6>
+                                    <pre id="debugApiResponse" class="text-muted small" style="max-height: 200px; overflow-y: auto;">無響應數據</pre>
+                                </div>
+                            </div>
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6><i class="fas fa-list me-2"></i>MAC ID 狀態</h6>
+                                    <div id="debugMacIds" class="text-muted">尚未載入 MAC ID</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
@@ -335,31 +369,44 @@
                 const response = await fetch(`/api/uart/mac-channels/${macId}`);
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.success && data.channels && data.channels.length > 0) {
-                        // 只保留頻道 0-6（過濾掉頻道 7 電池電壓）
-                        const userConfigChannels = data.channels.filter(ch => ch >= 0 && ch <= 6);
+                    console.log('頻道 API 響應:', data);
+                    
+                    if (data.success) {
+                        let channels = [];
                         
-                        // 更新頻道配置
-                        CHANNEL_CONFIG.CURRENT_CHANNELS = userConfigChannels.map(ch => ch.toString());
+                        // 檢查新的 API 格式
+                        if (data.channels && Array.isArray(data.channels)) {
+                            // 新格式：直接有 channels 陣列
+                            channels = data.channels.filter(ch => ch >= 0 && ch <= 6);
+                        } else if (data.data && data.data.channels && Array.isArray(data.data.channels)) {
+                            // 舊格式：從 data.channels 提取
+                            channels = data.data.channels
+                                .map(ch => ch.channel)
+                                .filter(ch => ch >= 0 && ch <= 6);
+                        }
                         
-                        // 動態生成頻道輸入欄位（只顯示 0-6）
-                        generateChannelInputs(userConfigChannels);
-                        
-                        // 更新提示資訊
-                        const hasChannel7 = data.channels.includes(7);
-                        const statusMsg = hasChannel7 ? 
-                            `已載入 ${userConfigChannels.length} 個設備型號頻道: ${userConfigChannels.join(', ')} (頻道7為電池電壓，無需設定型號)` :
-                            `已載入 ${userConfigChannels.length} 個頻道: ${userConfigChannels.join(', ')}`;
-                        
-                        document.getElementById('channelInfo').innerHTML = 
-                            `<i class="fas fa-check-circle text-success me-2"></i>${statusMsg}`;
+                        if (channels.length > 0) {
+                            // 更新頻道配置
+                            CHANNEL_CONFIG.CURRENT_CHANNELS = channels.map(ch => ch.toString());
+                            
+                            // 動態生成頻道輸入欄位（只顯示 0-6）
+                            generateChannelInputs(channels);
+                            
+                            // 更新提示資訊
+                            const dataSource = data.data_source || '未知來源';
+                            const statusMsg = `已載入 ${channels.length} 個設備型號頻道: ${channels.join(', ')} (來源: ${dataSource})`;
+                            
+                            document.getElementById('channelInfo').innerHTML = 
+                                `<i class="fas fa-check-circle text-success me-2"></i>${statusMsg}`;
+                        } else {
+                            console.warn(`MAC ID ${macId} 沒有找到有效頻道（0-6），使用預設配置`);
+                            CHANNEL_CONFIG.CURRENT_CHANNELS = getDefaultChannels();
+                            generateChannelInputs(getDefaultChannels().map(ch => parseInt(ch)));
+                            document.getElementById('channelInfo').innerHTML = 
+                                `<i class="fas fa-exclamation-triangle text-warning me-2"></i>該 MAC ID 沒有有效頻道（0-6），使用預設配置`;
+                        }
                     } else {
-                        // 沒有找到頻道資料，使用預設配置
-                        console.warn(`MAC ID ${macId} 沒有找到頻道資料，使用預設配置`);
-                        CHANNEL_CONFIG.CURRENT_CHANNELS = getDefaultChannels();
-                        generateChannelInputs(getDefaultChannels().map(ch => parseInt(ch)));
-                        document.getElementById('channelInfo').innerHTML = 
-                            `<i class="fas fa-exclamation-triangle text-warning me-2"></i>未找到該 MAC ID 的頻道資料，使用預設配置 (頻道 0-6)`;
+                        throw new Error(data.message || '未知錯誤');
                     }
                 } else {
                     throw new Error(`HTTP ${response.status}`);
@@ -611,26 +658,71 @@
             try {
                 document.getElementById('macIdStatus').textContent = '載入中...';
                 
-                const response = await fetch('/api/uart/mac-ids');
+                // 添加時間戳防止快取，並設置較短的超時時間
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/uart/mac-ids?t=${timestamp}`, {
+                    method: 'GET',
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                console.log('MAC ID API 響應狀態:', response.status);
+                
                 if (response.ok) {
                     const data = await response.json();
-                    if (data.success && data.mac_ids) {
+                    console.log('MAC ID API 響應數據:', data);
+                    
+                    // 更新調試面板
+                    updateDebugInfo('MAC ID API', data);
+                    
+                    if (data.success && data.mac_ids && data.mac_ids.length > 0) {
                         updateMacIdOptions(data.mac_ids);
-                        document.getElementById('macIdStatus').textContent = `已載入 ${data.mac_ids.length} 個 MAC ID`;
+                        
+                        const dataSource = data.data_source || '未知來源';
+                        const statusText = `已載入 ${data.mac_ids.length} 個 MAC ID (來源: ${dataSource}, 最新: ${new Date().toLocaleTimeString()})`;
+                        
+                        document.getElementById('macIdStatus').textContent = statusText;
+                        document.getElementById('macIdStatus').className = 'text-success ms-2';
                     } else {
-                        document.getElementById('macIdStatus').textContent = data.message || 'MAC ID 列表為空';
+                        const message = data.message || 'MAC ID 列表為空';
+                        document.getElementById('macIdStatus').textContent = message;
+                        document.getElementById('macIdStatus').className = 'text-warning ms-2';
+                        console.warn('MAC ID 數據為空或無效:', data);
+                        
+                        // 更新調試面板中的 MAC ID 狀態
+                        updateDebugMacIds([]);
+                        
+                        // 如果數據來源是歷史文件但沒有數據，提供更多資訊
+                        if (data.data_source === '歷史文件') {
+                            document.getElementById('macIdStatus').textContent = '歷史文件中沒有 MAC ID 數據，請確認 UART 是否正確接收過數據';
+                        }
                     }
                 } else {
-                    document.getElementById('macIdStatus').textContent = 'HTTP 錯誤：' + response.status;
+                    const errorText = `HTTP 錯誤：${response.status} - ${response.statusText}`;
+                    document.getElementById('macIdStatus').textContent = errorText;
+                    document.getElementById('macIdStatus').className = 'text-danger ms-2';
+                    console.error('HTTP 錯誤:', response.status, response.statusText);
+                    
+                    // 更新調試面板
+                    updateDebugInfo('MAC ID API 錯誤', { error: errorText });
                 }
             } catch (error) {
                 console.error('載入 MAC ID 列表失敗:', error);
-                document.getElementById('macIdStatus').textContent = '載入失敗，請檢查網路連線';
+                document.getElementById('macIdStatus').textContent = `載入失敗: ${error.message}`;
+                document.getElementById('macIdStatus').className = 'text-danger ms-2';
+                
+                // 更新調試面板
+                updateDebugInfo('MAC ID API 異常', { error: error.message });
             }
         }
 
         // 更新MAC ID選項
         function updateMacIdOptions(macIds) {
+            console.log('更新 MAC ID 選項，接收到的 MAC IDs:', macIds);
+            
             const select = document.getElementById('deviceSerial');
             const currentValue = select.value;
             
@@ -639,18 +731,34 @@
             
             // 添加去重複的MAC ID選項
             const uniqueMacIds = [...new Set(macIds)];
-            uniqueMacIds.forEach(macId => {
-                if (macId && macId.trim()) {
-                    const option = document.createElement('option');
-                    option.value = macId;
-                    option.textContent = macId;
-                    select.appendChild(option);
-                }
-            });
+            console.log('去重複後的 MAC IDs:', uniqueMacIds);
+            
+            // 更新調試面板中的 MAC ID 信息
+            updateDebugMacIds(uniqueMacIds);
+            
+            if (uniqueMacIds.length === 0) {
+                const option = document.createElement('option');
+                option.value = '';
+                option.textContent = '暫無可用的 MAC ID';
+                option.disabled = true;
+                select.appendChild(option);
+                console.warn('沒有可用的 MAC ID');
+            } else {
+                uniqueMacIds.forEach((macId, index) => {
+                    if (macId && macId.trim() && macId !== 'N/A') {
+                        const option = document.createElement('option');
+                        option.value = macId;
+                        option.textContent = macId;
+                        select.appendChild(option);
+                        console.log(`添加 MAC ID ${index + 1}:`, macId);
+                    }
+                });
+            }
             
             // 如果原本有選中的值且仍存在，重新選中
             if (currentValue && uniqueMacIds.includes(currentValue)) {
                 select.value = currentValue;
+                console.log('恢復之前選中的 MAC ID:', currentValue);
                 // 重新載入該 MAC ID 的頻道資訊
                 loadChannelsForMacId(currentValue);
             }
@@ -658,13 +766,128 @@
             // 添加 MAC ID 選擇變更事件監聽器
             select.onchange = function() {
                 const selectedMacId = this.value;
+                console.log('選擇了新的 MAC ID:', selectedMacId);
                 loadChannelsForMacId(selectedMacId);
             };
         }
 
         // 手動刷新MAC ID列表
         function refreshMacIdList() {
+            console.log('手動刷新 MAC ID 列表');
             loadMacIdList();
+        }
+        
+        // 自動定期刷新MAC ID列表
+        function startAutoRefreshMacIds() {
+            // 每30秒自動刷新一次MAC ID列表
+            setInterval(() => {
+                console.log('自動刷新 MAC ID 列表');
+                loadMacIdList();
+            }, 30000); // 30秒
+        }
+        
+        // 測試UART連接狀態
+        async function testUartConnection() {
+            try {
+                console.log('測試 UART 連接狀態');
+                const statusElement = document.getElementById('macIdStatus');
+                statusElement.textContent = '測試 UART 連接中...';
+                statusElement.className = 'text-info ms-2';
+                
+                // 測試 UART 狀態 API
+                const response = await fetch('/api/uart/status', {
+                    method: 'GET',
+                    cache: 'no-cache'
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('UART 狀態響應:', data);
+                    
+                    let statusMessage = `UART 狀態: ${data.is_running ? '運行中' : '未運行'}, 數據量: ${data.data_count || 0}`;
+                    if (data.latest_data && data.latest_data.length > 0) {
+                        statusMessage += `, 最新數據: ${data.latest_data.length} 筆`;
+                    }
+                    
+                    statusElement.textContent = statusMessage;
+                    statusElement.className = data.is_running ? 'text-success ms-2' : 'text-warning ms-2';
+                    
+                    // 如果 UART 運行中但沒有數據，提示用戶
+                    if (data.is_running && (!data.latest_data || data.latest_data.length === 0)) {
+                        alert('UART 服務正在運行，但尚未接收到任何數據。\n請確認設備是否正確連接並發送數據。');
+                    } else if (!data.is_running) {
+                        alert('UART 服務未運行。\n請先啟動 UART 服務以接收 MAC ID 數據。');
+                    } else {
+                        // 有數據的情況下，嘗試刷新 MAC ID 列表
+                        await loadMacIdList();
+                    }
+                } else {
+                    statusElement.textContent = `測試失敗: HTTP ${response.status}`;
+                    statusElement.className = 'text-danger ms-2';
+                    alert(`無法連接到 UART API\nHTTP 錯誤: ${response.status}`);
+                }
+            } catch (error) {
+                console.error('測試 UART 連接失敗:', error);
+                const statusElement = document.getElementById('macIdStatus');
+                statusElement.textContent = `測試失敗: ${error.message}`;
+                statusElement.className = 'text-danger ms-2';
+                alert(`測試 UART 連接時發生錯誤:\n${error.message}`);
+            }
+        }
+        
+        // 更新調試面板的 API 信息
+        function updateDebugInfo(apiName, responseData) {
+            try {
+                const statusElement = document.getElementById('debugApiStatus');
+                const responseElement = document.getElementById('debugApiResponse');
+                
+                if (statusElement) {
+                    statusElement.innerHTML = `
+                        <strong>最近 API 呼叫:</strong> ${apiName}<br>
+                        <strong>時間:</strong> ${new Date().toLocaleString()}<br>
+                        <strong>狀態:</strong> <span class="text-success">成功</span>
+                    `;
+                }
+                
+                if (responseElement) {
+                    responseElement.textContent = JSON.stringify(responseData, null, 2);
+                }
+            } catch (error) {
+                console.error('更新調試信息失敗:', error);
+            }
+        }
+        
+        // 更新調試面板的 MAC ID 信息
+        function updateDebugMacIds(macIds) {
+            try {
+                const debugElement = document.getElementById('debugMacIds');
+                if (debugElement) {
+                    if (macIds.length === 0) {
+                        debugElement.innerHTML = `
+                            <div class="text-warning">
+                                <i class="fas fa-exclamation-triangle me-2"></i>目前沒有可用的 MAC ID
+                            </div>
+                            <small class="text-muted">
+                                可能的原因：<br>
+                                1. UART 服務未啟動<br>
+                                2. 設備未連接或未發送數據<br>
+                                3. 數據格式不正確
+                            </small>
+                        `;
+                    } else {
+                        debugElement.innerHTML = `
+                            <div class="text-success">
+                                <i class="fas fa-check-circle me-2"></i>發現 ${macIds.length} 個 MAC ID
+                            </div>
+                            <div class="mt-2">
+                                ${macIds.map(id => `<span class="badge bg-secondary me-1">${id}</span>`).join('')}
+                            </div>
+                        `;
+                    }
+                }
+            } catch (error) {
+                console.error('更新 MAC ID 調試信息失敗:', error);
+            }
         }
 
         // 預覽設定
@@ -874,6 +1097,9 @@
             loadMacIdList().then(() => {
                 loadExistingSettings();
             });
+            
+            // 啟動自動刷新MAC ID功能
+            startAutoRefreshMacIds();
             
             // 監聽輸入變化以即時啟用/停用按鈕
             document.getElementById('deviceName').addEventListener('input', function() {

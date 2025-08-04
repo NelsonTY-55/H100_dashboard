@@ -196,11 +196,18 @@ class ConfigValidator:
         for protocol_name in network_protocols:
             if protocol_name in protocols:
                 protocol_config = protocols[protocol_name]
-                host = protocol_config.get("host", "")
+                
+                # 對於 MQTT，檢查 broker 欄位；對於其他協定，檢查 host 欄位
+                if protocol_name == "MQTT":
+                    host = protocol_config.get("broker", "")
+                    host_field_name = "broker"
+                else:
+                    host = protocol_config.get("host", "")
+                    host_field_name = "host"
                 
                 # 檢查主機名稱或IP格式
                 if not host or host.strip() == "":
-                    errors.append(f"{protocol_name} host 不能為空")
+                    errors.append(f"{protocol_name} {host_field_name} 不能為空")
                 
                 # 檢查端口衝突
                 port = protocol_config.get("port")

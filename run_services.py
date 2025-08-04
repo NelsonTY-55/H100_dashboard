@@ -23,6 +23,7 @@ class ServiceManager:
             # 設定環境變數
             env = os.environ.copy()
             env['PYTHONPATH'] = os.getcwd()
+            env['PYTHONIOENCODING'] = 'utf-8'  # 確保 Python 子程序使用 UTF-8 編碼
             
             # 啟動 Python 腳本
             process = subprocess.Popen(
@@ -32,7 +33,9 @@ class ServiceManager:
                 env=env,
                 text=True,
                 bufsize=1,
-                universal_newlines=True
+                universal_newlines=True,
+                encoding='utf-8',
+                errors='replace'
             )
             
             self.processes[name] = {
@@ -59,9 +62,29 @@ class ServiceManager:
     def monitor_output(self, service_name, process):
         """監控服務輸出"""
         try:
-            for line in iter(process.stdout.readline, ''):
-                if self.running and line.strip():
-                    print(f"[{service_name}] {line.strip()}")
+            # 監控標準輸出
+            def monitor_stdout():
+                for line in iter(process.stdout.readline, ''):
+                    if self.running and line.strip():
+                        print(f"[{service_name}] {line.strip()}")
+            
+            # 監控錯誤輸出
+            def monitor_stderr():
+                for line in iter(process.stderr.readline, ''):
+                    if self.running and line.strip():
+                        # 檢查是否是實際錯誤還是普通日誌
+                        line_content = line.strip()
+                        if any(level in line_content for level in ['[ERROR]', '[CRITICAL]', 'Traceback', 'Exception', 'Error:']):
+                            print(f"[{service_name}][ERROR] {line_content}")
+                        elif any(level in line_content for level in ['[INFO]', '[DEBUG]', '[WARNING]']):
+                            print(f"[{service_name}] {line_content}")
+                        else:
+                            print(f"[{service_name}][LOG] {line_content}")
+            
+            # 啟動兩個監控執行緒
+            threading.Thread(target=monitor_stdout, daemon=True).start()
+            threading.Thread(target=monitor_stderr, daemon=True).start()
+            
         except Exception as e:
             if self.running:
                 print(f"[{datetime.now().strftime('%H:%M:%S')}] {service_name} 輸出監控錯誤: {e}")
@@ -71,7 +94,22 @@ class ServiceManager:
         for name, info in self.processes.items():
             process = info['process']
             if process.poll() is not None:
-                print(f"[{datetime.now().strftime('%H:%M:%S')}] 警告: {name} 服務已停止 (返回碼: {process.poll()})")
+                exit_code = process.poll()
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] 警告: {name} 服務已停止 (返回碼: {exit_code})")
+                
+                # 顯示錯誤輸出（如果有的話）
+                try:
+                    # 嘗試讀取剩餘的輸出
+                    stdout_output = process.stdout.read() if process.stdout else ""
+                    stderr_output = process.stderr.read() if process.stderr else ""
+                    
+                    if stdout_output:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} 標準輸出: {stdout_output}")
+                    if stderr_output:
+                        print(f"[{datetime.now().strftime('%H:%M:%S')}] {name} 錯誤輸出: {stderr_output}")
+                except Exception as read_error:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] 讀取 {name} 輸出時發生錯誤: {read_error}")
+                
                 # 可以在這裡添加重啟邏輯
     
     def stop_all_services(self):
@@ -155,13 +193,34 @@ def main():
     for name, script, port in scripts:
         if service_manager.start_service(name, script, port):
             success_count += 1
-        time.sleep(2)  # 給每個服務一些啟動時間
+        time.sleep(3)  # 給每個服務更多啟動時間
     
     if success_count == 0:
         print("錯誤: 沒有成功啟動任何服務")
         return 1
     
     print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 已啟動 {success_count}/{len(scripts)} 個服務")
+    
+    # 等待服務完全啟動
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 等待服務完全啟動...")
+    time.sleep(5)
+    
+    # 檢查端口是否開放
+    print(f"\n[{datetime.now().strftime('%H:%M:%S')}] 檢查服務端口...")
+    import socket
+    for name, script, port in scripts:
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(2)
+            result = sock.connect_ex(('localhost', port))
+            sock.close()
+            if result == 0:
+                print(f"  ✓ {name} (端口 {port}): 可連接")
+            else:
+                print(f"  ✗ {name} (端口 {port}): 無法連接")
+        except Exception as e:
+            print(f"  ✗ {name} (端口 {port}): 檢查失敗 - {e}")
+    
     print("\n服務訪問地址:")
     print("  - 主應用: http://localhost:5000")
     print("  - Dashboard: http://localhost:5001/dashboard")
