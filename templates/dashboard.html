@@ -195,24 +195,34 @@
                     </div>
                     <div class="card-body">
                         <div class="row">
-                            <div class="col-md-3 mb-2">
+                            <div class="col-md-2 mb-2">
                                 <a href="/" class="btn btn-primary w-100">
                                     <i class="fas fa-home me-2"></i>返回首頁
                                 </a>
                             </div>
-                            <div class="col-md-3 mb-2">
+                            <div class="col-md-2 mb-2">
                                 <a href="/db-setting" class="btn btn-info w-100">
                                     <i class="fas fa-cogs me-2"></i>DB 設定
                                 </a>
                             </div>
-                            <div class="col-md-3 mb-2">
+                            <div class="col-md-2 mb-2">
                                 <button class="btn btn-success w-100" onclick="refreshData()">
                                     <i class="fas fa-sync-alt me-2"></i>重新整理
                                 </button>
                             </div>
-                            <div class="col-md-3 mb-2">
+                            <div class="col-md-2 mb-2">
+                                <button class="btn btn-secondary w-100" onclick="reloadHistoryData()">
+                                    <i class="fas fa-history me-2"></i>載入歷史
+                                </button>
+                            </div>
+                            <div class="col-md-2 mb-2">
                                 <button class="btn btn-warning w-100" onclick="exportData()">
                                     <i class="fas fa-download me-2"></i>匯出資料
+                                </button>
+                            </div>
+                            <div class="col-md-2 mb-2">
+                                <button class="btn btn-outline-secondary w-100" onclick="showDebugInfo()">
+                                    <i class="fas fa-bug me-2"></i>除錯信息
                                 </button>
                             </div>
                         </div>
@@ -803,6 +813,84 @@
             updateStats();
             updateUartStatus(); // 同時更新 UART 狀態
             updateTime();
+            loadAllDevices(); // 重新載入設備列表
+        }
+
+        // 載入歷史數據
+        async function reloadHistoryData() {
+            try {
+                // 顯示載入中狀態
+                const originalText = event.target.innerHTML;
+                event.target.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>載入中...';
+                event.target.disabled = true;
+                
+                const response = await fetch('/api/uart/reload-history', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    alert(`歷史數據載入成功！\n${data.message}\n檢測到的 MAC ID: ${data.mac_ids.join(', ')}`);
+                    // 重新載入設備列表
+                    await loadAllDevices();
+                } else {
+                    alert(`載入歷史數據失敗: ${data.message}`);
+                }
+                
+                // 恢復按鈕狀態
+                event.target.innerHTML = originalText;
+                event.target.disabled = false;
+                
+            } catch (error) {
+                console.error('載入歷史數據時發生錯誤:', error);
+                alert('載入歷史數據時發生錯誤，請檢查控制台');
+                
+                // 恢復按鈕狀態
+                event.target.innerHTML = '<i class="fas fa-history me-2"></i>載入歷史';
+                event.target.disabled = false;
+            }
+        }
+
+        // 顯示除錯信息
+        async function showDebugInfo() {
+            try {
+                const response = await fetch('/api/uart/status');
+                const data = await response.json();
+                
+                let debugInfo = `=== 系統除錯信息 ===\n\n`;
+                debugInfo += `UART 狀態: ${data.is_running ? '運行中' : '已停止'}\n`;
+                debugInfo += `數據總數: ${data.data_count}\n`;
+                debugInfo += `設備數量: ${allDevices.length}\n`;
+                debugInfo += `當前選擇設備: ${selectedDevice || '無'}\n\n`;
+                
+                if (data.latest_data && data.latest_data.length > 0) {
+                    debugInfo += `最新數據樣本 (最近 5 筆):\n`;
+                    data.latest_data.slice(-5).forEach((entry, index) => {
+                        debugInfo += `${index + 1}. MAC: ${entry.mac_id}, Channel: ${entry.channel}, Value: ${entry.parameter} ${entry.unit}, Time: ${entry.timestamp}\n`;
+                    });
+                    
+                    // 統計 MAC ID
+                    const macIds = [...new Set(data.latest_data.map(entry => entry.mac_id))];
+                    debugInfo += `\n檢測到的 MAC ID: ${macIds.join(', ')}\n`;
+                } else {
+                    debugInfo += `沒有檢測到任何數據\n`;
+                }
+                
+                debugInfo += `\n設定檔中的設備:\n`;
+                allDevices.forEach((device, index) => {
+                    debugInfo += `${index + 1}. ${device.device_name || '未命名'} (${device.mac_id})\n`;
+                });
+                
+                alert(debugInfo);
+                
+            } catch (error) {
+                console.error('獲取除錯信息時發生錯誤:', error);
+                alert('獲取除錯信息失敗，請檢查控制台');
+            }
         }
 
         // 匯出資料

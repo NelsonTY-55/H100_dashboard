@@ -48,5 +48,6 @@
   },
   "offline_mode": true,
   "data_retention_days": 30,
-  "max_data_points": 1000
+  "max_data_points": 1000,
+  "active_protocol": "TCP"
 }

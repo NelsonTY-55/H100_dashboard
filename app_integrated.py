@@ -327,7 +327,7 @@ def flask_dashboard():
     logging.info(f'重定向 Dashboard 到專用服務, remote_addr={request.remote_addr}')
     return redirect('http://localhost:5001/dashboard')
 
-# 所有 Dashboard API 路由重定向
+# Dashboard API 路由 - 重定向到 Dashboard 服務
 @app.route('/api/dashboard/stats')
 def dashboard_stats():
     """API: 重定向到 Dashboard 服務"""
@@ -638,6 +638,30 @@ def uart_status():
         })
     except Exception as e:
         return jsonify({'success': False, 'message': f'獲取UART狀態時發生錯誤: {str(e)}'})
+
+@app.route('/api/uart/reload-history', methods=['POST'])
+def reload_uart_history():
+    """API: 重新載入UART歷史數據"""
+    try:
+        if uart_reader and hasattr(uart_reader, 'reload_historical_data'):
+            uart_reader.reload_historical_data()
+            data_count = uart_reader.get_data_count()
+            
+            # 顯示載入的MAC ID
+            data = uart_reader.get_latest_data()
+            mac_ids = list(set(entry.get('mac_id') for entry in data if entry.get('mac_id') != 'N/A'))
+            
+            return jsonify({
+                'success': True,
+                'message': f'歷史數據重新載入成功，共載入 {data_count} 筆數據',
+                'data_count': data_count,
+                'mac_ids': mac_ids
+            })
+        else:
+            return jsonify({'success': False, 'message': 'UART讀取器不支援歷史數據載入功能'})
+    except Exception as e:
+        logging.exception(f'重新載入UART歷史數據時發生錯誤: {str(e)}')
+        return jsonify({'success': False, 'message': f'重新載入歷史數據時發生錯誤: {str(e)}'})
 
 @app.route('/api/uart/clear', methods=['POST'])
 def clear_uart_data():

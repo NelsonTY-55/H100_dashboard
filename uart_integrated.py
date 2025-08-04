@@ -38,6 +38,79 @@ class UARTReader:
         self.latest_data = []
         self.max_data_count = None  # 無限制保存資料
         self.lock = threading.Lock()
+        # 初始化時載入歷史數據
+        self.load_historical_data()
+        
+    def load_historical_data(self, days_back=7):
+        """載入最近幾天的歷史數據到 latest_data"""
+        try:
+            from datetime import datetime, timedelta
+            
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            history_dir = os.path.join(current_dir, 'History')
+            
+            if not os.path.exists(history_dir):
+                logging.info("History 資料夾不存在，無法載入歷史數據")
+                return
+            
+            # 計算要載入的日期範圍
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days_back)
+            
+            loaded_data = []
+            
+            # 掃描 History 資料夾中的 CSV 檔案
+            for filename in os.listdir(history_dir):
+                if filename.startswith('uart_data_') and filename.endswith('.csv'):
+                    try:
+                        # 從檔名提取日期
+                        date_str = filename.replace('uart_data_', '').replace('.csv', '')
+                        file_date = datetime.strptime(date_str, '%Y%m%d')
+                        
+                        # 只載入指定範圍內的數據
+                        if start_date <= file_date <= end_date:
+                            file_path = os.path.join(history_dir, filename)
+                            
+                            # 讀取 CSV 檔案
+                            with open(file_path, 'r', encoding='utf-8') as f:
+                                reader = csv.DictReader(f)
+                                for row in reader:
+                                    # 轉換為標準格式
+                                    data_entry = {
+                                        'timestamp': row.get('timestamp', ''),
+                                        'mac_id': row.get('mac_id', 'N/A'),
+                                        'channel': int(row.get('channel', 0)),
+                                        'parameter': float(row.get('parameter', 0.0)),
+                                        'unit': row.get('unit', 'N/A')
+                                    }
+                                    loaded_data.append(data_entry)
+                                    
+                            logging.info(f"載入歷史數據檔案: {filename}")
+                            
+                    except Exception as e:
+                        logging.warning(f"載入檔案 {filename} 時發生錯誤: {e}")
+                        continue
+            
+            # 按時間排序
+            loaded_data.sort(key=lambda x: x.get('timestamp', ''))
+            
+            # 更新 latest_data
+            with self.lock:
+                self.latest_data = loaded_data
+                
+            logging.info(f"歷史數據載入完成，共載入 {len(loaded_data)} 筆數據")
+            
+            # 顯示載入的數據摘要
+            if loaded_data:
+                mac_ids = set(entry.get('mac_id') for entry in loaded_data)
+                logging.info(f"載入的 MAC ID: {list(mac_ids)}")
+                
+        except Exception as e:
+            logging.error(f"載入歷史數據時發生錯誤: {e}")
+            
+    def reload_historical_data(self):
+        """重新載入歷史數據的公開方法"""
+        self.load_historical_data()
         
     def get_uart_config(self):
         """從配置管理器獲取UART設定"""
