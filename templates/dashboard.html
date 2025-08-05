@@ -1095,11 +1095,11 @@
                 return;
             }
             const now = new Date();
-            const tenMinAgo = new Date(now.getTime() - 30 * 60000); // 顯示過去半小時的數據
+            const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000); // 顯示過去 30 分鐘的數據
             const datasets = result.data.map(chan => {
                 const pts = chan.data
                     .map(e => ({x: new Date(e.timestamp), y: e.parameter}))
-                    .filter(pt => pt.x >= tenMinAgo);
+                    .filter(pt => pt.x >= thirtyMinAgo);
                 return { channel: chan.channel, data: pts };
             });
             renderDualAxisChart(datasets);
