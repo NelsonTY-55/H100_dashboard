@@ -40,10 +40,11 @@
       "timeout": 30
     },
     "TCP": {
-      "host": "0.0.0.0",
+      "host": "127.0.0.1",
       "port": 5020,
       "timeout": 10,
-      "retry_count": 3
+      "retry_count": 3,
+      "configured": true
     }
   },
   "offline_mode": true,
