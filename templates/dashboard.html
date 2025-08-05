@@ -889,24 +889,40 @@
         // 載入並更新儀表板數值
         async function loadDashboardStats() {
             try {
-                const res = await fetch('/api/dashboard/stats');
-                const data = await res.json();
-                if (!data.success) return;
-                // CPU
-                const cpuPercent = Math.round(data.system.cpu_percent || 0);
-                document.getElementById('cpuUsageGauge').textContent = cpuPercent + '%';
-                drawCpuGauge(cpuPercent);
-                // 筆數
-                document.getElementById('dataCount').textContent = data.application.uart_data_count || 0;
-                // 狀態趨勢
-                document.getElementById('cpuTrend').innerHTML = '<i class="fas fa-minus"></i> 穩定';
-                document.getElementById('dataTrend').innerHTML = '<i class="fas fa-arrow-up"></i> 增加';
+            // 取得系統統計（CPU）
+            const statRes = await fetch('/api/dashboard/stats');
+            const statData = await statRes.json();
+            if (!statData.success) return;
+            // CPU 使用率
+            const cpuPercent = Math.round(statData.system.cpu_percent || 0);
+            document.getElementById('cpuUsageGauge').textContent = cpuPercent + '%';
+            drawCpuGauge(cpuPercent);
+            // 資料筆數：依據 MAC 選擇過濾
+            let count = statData.application.uart_data_count || 0;
+            const mac = document.getElementById('macSelector').value;
+            if (mac) {
+                const chartRes = await fetch(`/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}`);
+                const chartData = await chartRes.json();
+                if (chartData.success && Array.isArray(chartData.data)) {
+                    count = chartData.data.reduce((sum, ch) => sum + ch.data.length, 0);
+                }
+            }
+            document.getElementById('dataCount').textContent = count;
+            // 狀態趨勢
+            document.getElementById('cpuTrend').innerHTML = '<i class="fas fa-minus"></i> 穩定';
+            document.getElementById('dataTrend').innerHTML = '<i class="fas fa-arrow-up"></i> 增加';
             } catch (e) {
                 document.getElementById('cpuUsageGauge').textContent = '0%';
                 drawCpuGauge(0);
                 document.getElementById('dataCount').textContent = '0';
             }
         }
+        // 更新頁首時間顯示
+        function updateCurrentTime() {
+            const now = new Date();
+            document.getElementById('current-time').textContent = now.toLocaleString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        }
+
         // 載入 MAC ID 選單
         async function loadMacIds() {
             try {
@@ -998,12 +1014,33 @@
         }
         document.addEventListener('DOMContentLoaded', function() {
             loadMacIds();
-            document.getElementById('macSelector').addEventListener('change', showUartChart);
+            // 初次載入圖表與統計
+            showUartChart();
             loadDashboardStats();
+            // 定期更新圖表
+            setInterval(showUartChart, 5000);
+            // 下拉選單變動時更新圖表與統計
+            document.getElementById('macSelector').addEventListener('change', () => {
+                showUartChart();
+                loadDashboardStats();
+            });
             setInterval(loadDashboardStats, 5000);
             drawCpuGauge(0);
             loadRegionDeviceCounts();
             setInterval(loadRegionDeviceCounts, 10000);
+            // 初始化並定時更新時間
+            updateCurrentTime();
+            setInterval(updateCurrentTime, 1000);
+            // 點擊時間時立即刷新
+            document.getElementById('current-time').addEventListener('click', updateCurrentTime);
+            // 使用 SSE 實現即時更新
+            if (window.EventSource) {
+                const source = new EventSource('/api/uart/stream');
+                source.onmessage = function(event) {
+                    showUartChart();
+                    loadDashboardStats();
+                };
+            }
         });
         </script>
 
@@ -1042,7 +1079,6 @@
                             </div>
                             <div class="mt-2 d-flex justify-content-center">
                                 <select id="macSelector" class="form-select form-select-sm w-auto">
-                                    <option value="">全部裝置</option>
                                 </select>
                             </div>
                         </div>
@@ -1159,11 +1195,27 @@
     <!-- Chart.js 載入 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-    <script>
+<script>
     let dashboardChart = null;
     let chartMode = 'realtime';
     let chartAutoRefresh = null;
 
+    // 載入 MAC ID 選單
+    async function loadMacIds() {
+        try {
+            const res = await fetch('/api/uart/mac-ids');
+            const data = await res.json();
+            if (data.success && Array.isArray(data.mac_ids)) {
+                const sel = document.getElementById('macSelector');
+                data.mac_ids.forEach(id => {
+                    const opt = document.createElement('option'); opt.value = id; opt.textContent = id;
+                    sel.appendChild(opt);
+                });
+            }
+        } catch (e) {
+            console.error('載入 MAC ID 失敗', e);
+        }
+    }
     // 切換圖表
     function switchChart(mode) {
         chartMode = mode;
@@ -1181,12 +1233,12 @@
         }
     }
 
-    // 顯示 UART 即時數據圖表
+    // 顯示 UART 即時數據圖表（支援 MAC 選擇）
     async function showUartChart() {
         try {
             const mac = document.getElementById('macSelector').value;
-            const url = mac ? `/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}` : '/api/dashboard/chart-data';
-            const res = await fetch(url);
+            const endpoint = mac ? `/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}` : '/api/dashboard/chart-data';
+            const res = await fetch(endpoint);
             const result = await res.json();
             if (!result.success || !Array.isArray(result.data)) {
                 renderDualAxisChart([]);
