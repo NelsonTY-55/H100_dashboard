@@ -911,6 +911,35 @@ def dashboard_devices():
             'devices': []
         })
 
+@app.route('/api/dashboard/uart_data')
+def dashboard_uart_data():
+    """API: 獲取 UART 即時數據列表"""
+    try:
+        # 限制筆數，可透過 ?limit= 數值調整
+        limit = request.args.get('limit', default=20, type=int)
+        # 從檔案讀取或 UART 讀取器取得數據
+        data_info = get_uart_data_from_files()
+        raw = data_info.get('latest_data', [])
+        # 取最後 limit 筆
+        selected = raw[-limit:] if len(raw) > limit else raw
+        # 格式化為前端需要的 timestamp/value
+        formatted = [{'timestamp': d.get('timestamp'), 'value': d.get('parameter', 0)} for d in selected]
+        return jsonify({'success': True, 'uart_data': formatted})
+    except Exception as e:
+        logging.error(f"獲取 UART 資料時發生錯誤: {e}")
+        return jsonify({'success': False, 'uart_data': []})
+
+@app.route('/api/dashboard/network_status')
+def dashboard_network_status():
+    """API: 獲取外部網路連線狀態"""
+    try:
+        status = network_checker.get_network_status()
+        online = status.get('internet_available', False)
+        return jsonify({'success': True, 'online': online, 'status': status})
+    except Exception as e:
+        logging.error(f"獲取網路狀態時發生錯誤: {e}")
+        return jsonify({'success': False, 'online': False})
+
 # ====== 健康檢查和狀態 API ======
 
 @app.route('/api/health')
