@@ -1,0 +1,1617 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Flask Dashboard - 系統監控</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .card {
+            transition: transform 0.2s;
+        }
+        .card:hover {
+            transform: translateY(-2px);
+        }
+        .status-online { color: #28a745; }
+        .status-offline { color: #dc3545; }
+        .dashboard-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin-bottom: 30px;
+        }
+        .device-info-item {
+            margin-bottom: 1rem;
+        }
+        .device-info-value {
+            background-color: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 0.375rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.95rem;
+            color: #495057;
+            min-height: 38px;
+            display: flex;
+            align-items: center;
+        }
+        .device-info-value:empty::before {
+            content: '未設定';
+            color: #6c757d;
+            font-style: italic;
+        }
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+        .chart-selector {
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .device-info-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 4px 15px rgba(0, 123, 255, 0.3);
+        }
+        .device-info-card .card-header:hover {
+            background: linear-gradient(135deg, #0056b3 0%, #007bff 100%) !important;
+        }
+        .chart-section-hidden {
+            opacity: 0;
+            transform: translateY(-20px);
+            transition: all 0.5s ease;
+        }
+        .chart-section-visible {
+            opacity: 1;
+            transform: translateY(0);
+            transition: all 0.5s ease;
+        }
+        
+        /* 多設備樣式 */
+        .device-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid #007bff;
+            cursor: pointer;
+        }
+        .device-card:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 8px 25px rgba(0, 123, 255, 0.3);
+        }
+        .device-card.selected {
+            border-left-color: #28a745;
+            box-shadow: 0 4px 15px rgba(40, 167, 69, 0.3);
+        }
+        .device-status-badge {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 0.75rem;
+        }
+        .device-info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .device-info-item-new {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 12px;
+            border-left: 3px solid #007bff;
+        }
+        .device-info-label {
+            font-size: 0.85rem;
+            color: #6c757d;
+            margin-bottom: 5px;
+            font-weight: 600;
+        }
+        .device-info-value-new {
+            font-size: 0.95rem;
+            color: #495057;
+            font-weight: 500;
+            word-break: break-all;
+        }
+        .device-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+        }
+        .mac-id-display {
+            font-family: 'Courier New', monospace;
+            background: #e9ecef;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+        
+        /* 側邊欄樣式 */
+        .sidebar-collapsible {
+            width: 220px;
+            min-width: 60px;
+            max-width: 220px;
+            left: 0;
+            top: 0;
+            z-index: 1040;
+            background: #2563eb;
+            color: #fff;
+            transition: width 0.3s cubic-bezier(.4,0,.2,1);
+            box-shadow: 2px 0 10px rgba(0,0,0,0.04);
+        }
+        .sidebar-collapsible.collapsed {
+            width: 60px !important;
+        }
+        .sidebar-collapsible .sidebar-header {
+            background: #1e40af;
+            border-bottom: 1px solid #3b82f6;
+        }
+        .sidebar-collapsible .sidebar-logo {
+            width: 36px;
+            height: 36px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 10px;
+            font-size: 1.3rem;
+        }
+        .sidebar-collapsible .sidebar-title {
+            font-size: 1.15rem;
+            transition: opacity 0.2s;
+        }
+        .sidebar-collapsible.collapsed .sidebar-title,
+        .sidebar-collapsible.collapsed .sidebar-link-text {
+            opacity: 0;
+            width: 0;
+            overflow: hidden;
+            pointer-events: none;
+        }
+        .sidebar-collapsible .nav-link {
+            color: #fff !important;
+            font-weight: 500;
+            padding: 0.75rem 1.5rem;
+            border-radius: 0 30px 30px 0;
+            margin-bottom: 0.2rem;
+            transition: background 0.2s, color 0.2s;
+        }
+        .sidebar-collapsible .nav-link.active, .sidebar-collapsible .nav-link:hover {
+            background: linear-gradient(90deg, #60a5fa 0%, #818cf8 100%);
+            color: #fff !important;
+        }
+        .sidebar-collapsible .nav-link i {
+            min-width: 22px;
+            text-align: center;
+        }
+        body {
+            padding-left: 220px;
+            transition: padding-left 0.3s cubic-bezier(.4,0,.2,1);
+        }
+        .sidebar-collapsible.collapsed ~ *:not(.sidebar-collapsible) {
+            transition: margin-left 0.3s cubic-bezier(.4,0,.2,1);
+        }
+        @media (max-width: 991.98px) {
+            body {
+                padding-left: 0 !important;
+            }
+            .sidebar-collapsible {
+                left: -220px;
+            }
+            .sidebar-collapsible.show {
+                left: 0;
+            }
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Side Navigation -->
+    <div id="sidebar" class="sidebar-collapsible bg-primary text-white position-fixed h-100">
+        <div class="sidebar-header d-flex align-items-center justify-content-between px-3 py-3">
+            <div class="d-flex align-items-center">
+                <span class="sidebar-logo d-flex align-items-center justify-content-center me-2">
+                    <i class="fas fa-columns fa-lg"></i>
+                </span>
+                <span class="sidebar-title fw-bold" id="sidebarTitle">H100 Dashboard</span>
+            </div>
+            <button class="btn btn-sm btn-light shadow-none ms-2" id="sidebarCollapseBtn" aria-label="收合選單" style="border-radius:50%;"><i class="fas fa-bars"></i></button>
+        </div>
+        <ul class="nav flex-column pt-2">
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/">
+                    <i class="fas fa-home me-2"></i> <span class="sidebar-link-text">首頁</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/dashboard">
+                    <i class="fas fa-tachometer-alt me-2"></i> <span class="sidebar-link-text">監控中心</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/db-setting">
+                    <i class="fas fa-cog me-2"></i> <span class="sidebar-link-text">設備機台設定</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white active" href="/11">
+                    <i class="fas fa-chart-area me-2"></i> <span class="sidebar-link-text">儀錶板總覽</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/config-summary">
+                    <i class="fas fa-list-alt me-2"></i> <span class="sidebar-link-text">配置摘要</span>
+                </a>
+            </li>
+        </ul>
+    </div>
+    <div class="dashboard-header py-4">
+        <div class="container">
+            <div class="row align-items-center">
+                <div class="col">
+                    <h1 class="mb-0">
+                        <i class="fas fa-tachometer-alt me-2"></i>
+                        系統監控儀表板
+                    </h1>
+                    <p class="mb-0 opacity-75">
+                        即時監控與數據分析
+                    </p>
+                </div>
+                <div class="col-auto">
+                    <span id="current-time" class="badge bg-light text-dark fs-6"></span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- 設備信息總覽 -->
+        <div class="row mb-3">
+            <div class="col-12">
+                <div class="card border-primary">
+                    <div class="card-body py-2">
+                        <h5 class="mb-0 d-flex align-items-center">
+                            <i class="fas fa-microchip me-2 text-primary"></i>
+                            設備信息總覽
+                            <div class="ms-auto d-flex align-items-center bg-light rounded px-3 py-1" id="device-count-container">
+                                <i class="fas fa-server me-2 text-secondary"></i>
+                                <span class="text-secondary fw-bold" id="device-count"></span>
+                            </div>
+                        </h5>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 設備信息列表 -->
+        <div class="row mb-4" id="devicesList">
+            <!-- 設備卡片將由 JavaScript 動態生成 -->
+            <div class="col-12">
+                <div class="card border-secondary">
+                    <div class="card-body d-flex align-items-center justify-content-center py-3">
+                        <div class="text-muted d-flex align-items-center">
+                            <i class="fas fa-spinner fa-spin fa-lg me-3"></i>
+                            <div>
+                                <span class="fw-bold">正在載入設備信息...</span>
+                                <small class="d-block text-muted">請稍候，系統正在搜尋所有已註冊的設備</small>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- 控制面板 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <h5 class="mb-0"><i class="fas fa-tools me-2"></i>快速控制</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-3 mb-2">
+                                <a href="/dashboard" class="btn btn-primary w-100">
+                                    <i class="fas fa-home me-2"></i>返回首頁
+                                </a>
+                            </div>
+                            <div class="col-md-3 mb-2">
+                                <a href="/db-setting" class="btn btn-info w-100">
+                                    <i class="fas fa-cogs me-2"></i>DB 設定
+                                </a>
+                            </div>
+                            <div class="col-md-3 mb-2">
+                                <button class="btn btn-success w-100" onclick="refreshData()">
+                                    <i class="fas fa-sync-alt me-2"></i>重新整理
+                                </button>
+                            </div>
+                            <div class="col-md-3 mb-2">
+                                <button class="btn btn-warning w-100" onclick="exportData()">
+                                    <i class="fas fa-download me-2"></i>匯出資料
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 數據圖表區域 (預設隱藏) -->
+        <div id="chartSection" class="row mb-4" style="display: none;">
+            <div class="col-12">
+                <h3><i class="fas fa-chart-line me-2"></i>即時數據圖表</h3>
+            </div>
+        </div>
+        
+        <div id="chartDataSection" class="row mb-4" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="fas fa-analytics me-2"></i>通道數據趨勢</h5>
+                        <div class="btn-group" role="group">
+                            <button type="button" class="btn btn-outline-primary btn-sm" onclick="refreshChartData()">
+                                <i class="fas fa-sync-alt me-1"></i>刷新圖表
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary btn-sm" onclick="clearChartData()">
+                                <i class="fas fa-trash me-1"></i>清除數據
+                            </button>
+                            <button type="button" class="btn btn-outline-warning btn-sm" onclick="hideChartSection()">
+                                <i class="fas fa-eye-slash me-1"></i>隱藏圖表
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- 設備選擇器 -->
+                        <div class="chart-selector">
+                            <div class="row align-items-center">
+                                <div class="col-md-6">
+                                    <h6 class="mb-2">
+                                        <i class="fas fa-microchip me-2"></i>數據來源設備
+                                    </h6>
+                                    <div class="d-flex align-items-center">
+                                        <i class="fas fa-tag me-2 text-primary"></i>
+                                        <strong id="current-device-display">請選擇設備</strong>
+                                        <span id="current-device-mac" class="badge bg-secondary ms-2" style="display: none;"></span>
+                                    </div>
+                                </div>
+                                <div class="col-md-6 text-end">
+                                    <div class="btn-group" role="group">
+                                        <button type="button" class="btn btn-outline-info btn-sm" onclick="switchDevice()">
+                                            <i class="fas fa-exchange-alt me-1"></i>切換設備
+                                        </button>
+                                        <button type="button" class="btn btn-outline-success btn-sm" onclick="loadDeviceData()">
+                                            <i class="fas fa-download me-1"></i>載入數據
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 圖表選項 -->
+                        <div class="row mb-3">
+                            <div class="col-md-3">
+                                <label for="channelSelect" class="form-label">選擇通道:</label>
+                                <select class="form-select" id="channelSelect" onchange="updateChartDisplay()">
+                                    <option value="all">所有通道</option>
+                                    <!-- 動態生成通道選項 -->
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="dataPointsSelect" class="form-label">數據點數:</label>
+                                <select class="form-select" id="dataPointsSelect" onchange="updateChartDisplay()">
+                                    <option value="1000" selected>最近 1000 點</option>
+                                    <option value="5000">最近 5000 點</option>
+                                    <option value="10000">最近 10000 點</option>
+                                    <option value="999999">所有數據（無限制）</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="updateIntervalSelect" class="form-label">更新間隔:</label>
+                                <select class="form-select" id="updateIntervalSelect" onchange="updateRefreshInterval()">
+                                    <option value="15000">15 秒</option>
+                                    <option value="30000" selected>30 秒 (推薦)</option>
+                                    <option value="60000">1 分鐘 (省電)</option>
+                                    <option value="120000">2 分鐘 (減少負載)</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label class="form-label">圖表狀態:</label>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" id="autoRefresh" checked>
+                                    <label class="form-check-label" for="autoRefresh">
+                                        自動刷新
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 圖表容器 - 動態生成多個圖表 -->
+                        <div id="chartsContainer">
+                            <!-- 當沒有數據時顯示的占位符 -->
+                            <div id="noDataPlaceholder" class="text-center py-5">
+                                <div class="text-muted">
+                                    <i class="fas fa-chart-line fa-3x mb-3"></i>
+                                    <h5>等待數據載入...</h5>
+                                    <p>圖表將在數據可用時自動顯示</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 圖表統計資訊 -->
+                        <div class="row mt-3" id="chartStats">
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <small class="text-muted">更新頻率</small>
+                                    <div class="fw-bold" id="updateFrequency">每3秒</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <small class="text-muted">最後更新</small>
+                                    <div class="fw-bold" id="lastUpdate">--</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <small class="text-muted">數據時間窗口</small>
+                                    <div class="fw-bold text-info">最近 30 分鐘</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="text-center">
+                                    <small class="text-muted">連線狀態</small>
+                                    <div class="fw-bold">
+                                        <span id="connectionStatus" class="badge bg-success">
+                                            <i class="fas fa-circle me-1"></i>正常
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- 軸說明 -->
+                        <div class="row mt-2">
+                            <div class="col-12">
+                                <div class="d-flex justify-content-center">
+                                    <small class="text-muted me-4">
+                                        <i class="fas fa-square" style="color: #007bff;"></i>
+                                        左軸 (電流): Channel 0-6
+                                    </small>
+                                    <small class="text-muted me-4">
+                                        <i class="fas fa-square" style="color: #28a745;"></i>
+                                        右軸 (電壓): Channel 7
+                                    </small>
+                                    <small class="text-muted">
+                                        <i class="fas fa-clock me-1"></i>
+                                        自動過濾超過30分鐘的舊資料
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 側邊欄功能
+        document.addEventListener('DOMContentLoaded', function() {
+            const sidebarToggle = document.getElementById('sidebarToggle');
+            const sidebar = document.getElementById('sidebar');
+            
+            // 側邊欄切換功能
+            if (sidebarToggle && sidebar) {
+                sidebarToggle.addEventListener('click', function() {
+                    sidebar.classList.toggle('collapsed');
+                    
+                    // 更新按鈕圖標
+                    const icon = this.querySelector('i');
+                    if (sidebar.classList.contains('collapsed')) {
+                        icon.classList.remove('fa-bars');
+                        icon.classList.add('fa-times');
+                    } else {
+                        icon.classList.remove('fa-times');
+                        icon.classList.add('fa-bars');
+                    }
+                });
+            }
+            
+            // 響應式處理：小螢幕自動收合
+            function handleResize() {
+                if (window.innerWidth <= 768) {
+                    sidebar.classList.add('collapsed');
+                    const icon = sidebarToggle.querySelector('i');
+                    icon.classList.remove('fa-times');
+                    icon.classList.add('fa-bars');
+                }
+            }
+            
+            // 監聽視窗大小變化
+            window.addEventListener('resize', handleResize);
+            
+            // 初始化時檢查螢幕大小
+            handleResize();
+        });
+        
+        // 全域變數
+        let channelCharts = {}; // 儲存每個通道的圖表實例
+        let chartData = {};
+        let chartUpdateInterval = null;
+        let allDevices = []; // 儲存所有設備資訊
+        let selectedDevice = null; // 當前選擇的設備
+        
+        // 載入所有設備資訊
+        async function loadAllDevices() {
+            try {
+                const response = await fetch('/api/dashboard/devices');
+                const data = await response.json();
+                
+                if (data.success) {
+                    allDevices = data.devices;
+                    renderDevicesList();
+                    updateDeviceCount();
+                    
+                    // 如果沒有選擇設備，自動選擇第一個
+                    if (!selectedDevice && allDevices.length > 0) {
+                        selectDevice(allDevices[0].mac_id);
+                    }
+                } else {
+                    console.error('載入設備列表失敗:', data.message);
+                    showNoDevicesMessage();
+                    updateDeviceCount();
+                }
+            } catch (error) {
+                console.error('載入設備資訊時發生錯誤:', error);
+                showNoDevicesMessage();
+                updateDeviceCount();
+            }
+        }
+        
+        // 更新設備數量顯示
+        function updateDeviceCount() {
+            const deviceCountElement = document.getElementById('device-count');
+            const deviceCountContainer = document.getElementById('device-count-container');
+            
+            if (allDevices.length === 0) {
+                deviceCountElement.textContent = '無設備';
+                deviceCountContainer.className = 'ms-auto d-flex align-items-center bg-secondary rounded px-3 py-1';
+                deviceCountElement.className = 'text-white fw-bold';
+                // 更新圖標顏色
+                const icon = deviceCountContainer.querySelector('i');
+                icon.className = 'fas fa-exclamation-triangle me-2 text-white';
+            } else {
+                deviceCountElement.textContent = `共 ${allDevices.length} 台設備`;
+                deviceCountContainer.className = 'ms-auto d-flex align-items-center bg-success rounded px-3 py-1';
+                deviceCountElement.className = 'text-white fw-bold';
+                // 更新圖標顏色
+                const icon = deviceCountContainer.querySelector('i');
+                icon.className = 'fas fa-server me-2 text-white';
+            }
+        }
+        
+        // 渲染設備列表
+        function renderDevicesList() {
+            const devicesList = document.getElementById('devicesList');
+            
+            if (allDevices.length === 0) {
+                showNoDevicesMessage();
+                return;
+            }
+            
+            devicesList.innerHTML = '';
+            
+            // 每行顯示最多2個設備
+            for (let i = 0; i < allDevices.length; i += 2) {
+                const rowDiv = document.createElement('div');
+                rowDiv.className = 'col-12 mb-2';
+                
+                const rowCardDiv = document.createElement('div');
+                rowCardDiv.className = 'd-flex gap-2';
+                
+                // 添加第一個設備
+                const device1 = allDevices[i];
+                const deviceCard1 = createDeviceCard(device1, i);
+                deviceCard1.classList.remove('col-12', 'mb-2');
+                deviceCard1.classList.add('flex-fill');
+                rowCardDiv.appendChild(deviceCard1);
+                
+                // 如果有第二個設備，添加第二個設備
+                if (i + 1 < allDevices.length) {
+                    const device2 = allDevices[i + 1];
+                    const deviceCard2 = createDeviceCard(device2, i + 1);
+                    deviceCard2.classList.remove('col-12', 'mb-2');
+                    deviceCard2.classList.add('flex-fill');
+                    rowCardDiv.appendChild(deviceCard2);
+                }
+                
+                rowDiv.appendChild(rowCardDiv);
+                devicesList.appendChild(rowDiv);
+            }
+        }
+        
+        // 創建設備卡片
+        function createDeviceCard(device, index) {
+            const colDiv = document.createElement('div');
+            colDiv.className = 'col-12 mb-2';
+            
+            const isActive = device.mac_id === selectedDevice;
+            const lastDataTime = device.last_data_time ? new Date(device.last_data_time).toLocaleString('zh-TW') : '無資料';
+            const statusClass = device.is_active ? 'bg-success' : 'bg-secondary';
+            
+            colDiv.innerHTML = `
+                <div class="card device-card ${isActive ? 'selected' : ''}" 
+                     onclick="selectDevice('${device.mac_id}')" 
+                     data-mac-id="${device.mac_id}">
+                    <div class="card-body py-2 px-3">
+                        <div class="d-flex align-items-center">
+                            <!-- 設備基本信息 -->
+                            <div class="d-flex align-items-center me-2 flex-shrink-0">
+                                <i class="fas fa-microchip me-2 text-primary"></i>
+                                <div>
+                                    <h6 class="mb-0 fw-bold small">${device.device_name || `設備 ${index + 1}`}</h6>
+                                    <small class="text-muted" style="font-size: 0.75rem;">
+                                        <i class="fas fa-barcode me-1"></i>
+                                        <span class="mac-id-display">${device.mac_id}</span>
+                                    </small>
+                                </div>
+                            </div>
+                            
+                            <!-- 設備詳細信息 -->
+                            <div class="d-flex flex-grow-1 align-items-center gap-3 overflow-hidden">
+                                <div class="d-flex align-items-center flex-shrink-0">
+                                    <i class="fas fa-map-marker-alt me-1 text-secondary"></i>
+                                    <small class="text-muted text-truncate" style="max-width: 80px;">${device.device_location || '未設定'}</small>
+                                </div>
+                                <div class="d-flex align-items-center flex-shrink-0">
+                                    <i class="fas fa-cube me-1 text-secondary"></i>
+                                    <small class="text-muted text-truncate" style="max-width: 80px;">${device.device_model || '未設定'}</small>
+                                </div>
+                                <div class="d-none d-lg-flex align-items-center flex-shrink-0">
+                                    <i class="fas fa-clock me-1 text-secondary"></i>
+                                    <small class="text-muted">${lastDataTime.split(' ')[1] || '無資料'}</small>
+                                </div>
+                            </div>
+                            
+                            <!-- 狀態和操作按鈕 -->
+                            <div class="d-flex align-items-center gap-1 ms-auto flex-shrink-0">
+                                <div class="btn-group" role="group">
+                                    <button class="btn btn-sm btn-outline-info py-1 px-2" onclick="showDeviceChart('${device.mac_id}'); event.stopPropagation();" title="查看圖表">
+                                        <i class="fas fa-chart-line" style="font-size: 0.8rem;"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-primary py-1 px-2" onclick="editDeviceSettings('${device.mac_id}'); event.stopPropagation();" title="編輯設定">
+                                        <i class="fas fa-edit" style="font-size: 0.8rem;"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            return colDiv;
+        }
+        
+        // 選擇設備
+        function selectDevice(macId) {
+            selectedDevice = macId;
+            
+            // 更新UI
+            document.querySelectorAll('.device-card').forEach(card => {
+                if (card.dataset.macId === macId) {
+                    card.classList.add('selected');
+                } else {
+                    card.classList.remove('selected');
+                }
+            });
+            
+            // 更新當前設備顯示
+            const device = allDevices.find(d => d.mac_id === macId);
+            if (device) {
+                document.getElementById('current-device-display').textContent = 
+                    device.device_name || `設備 (${macId})`;
+                
+                // 顯示MAC ID
+                const macBadge = document.getElementById('current-device-mac');
+                macBadge.textContent = macId;
+                macBadge.style.display = 'inline';
+            }
+            
+            console.log(`已選擇設備: ${macId}`);
+        }
+        
+        // 顯示無設備訊息
+        function showNoDevicesMessage() {
+            const devicesList = document.getElementById('devicesList');
+            devicesList.innerHTML = `
+                <div class="col-12">
+                    <div class="card border-warning">
+                        <div class="card-body d-flex align-items-center justify-content-between py-3">
+                            <div class="text-warning d-flex align-items-center">
+                                <i class="fas fa-exclamation-triangle fa-lg me-3"></i>
+                                <div>
+                                    <span class="fw-bold">尚未發現任何設備</span>
+                                    <small class="d-block text-muted">系統中尚未註冊任何設備，或所有設備都處於離線狀態</small>
+                                </div>
+                            </div>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-primary" onclick="refreshDevicesList()">
+                                    <i class="fas fa-sync-alt me-1"></i>重新搜尋
+                                </button>
+                                <a href="/db-setting" class="btn btn-sm btn-success">
+                                    <i class="fas fa-plus me-1"></i>新增設備
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // 重新載入設備列表
+        function refreshDevicesList() {
+            const devicesList = document.getElementById('devicesList');
+            devicesList.innerHTML = `
+                <div class="col-12">
+                    <div class="card border-secondary">
+                        <div class="card-body d-flex align-items-center justify-content-center py-3">
+                            <div class="text-muted d-flex align-items-center">
+                                <i class="fas fa-spinner fa-spin fa-lg me-3"></i>
+                                <div>
+                                    <span class="fw-bold">正在重新載入設備信息...</span>
+                                    <small class="d-block text-muted">請稍候，系統正在搜尋所有已註冊的設備</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            loadAllDevices();
+        }
+        
+        // 顯示設備圖表
+        function showDeviceChart(macId) {
+            selectDevice(macId);
+            showChartSection();
+        }
+        
+        // 編輯設備設定
+        function editDeviceSettings(macId) {
+            // 跳轉到設定頁面，帶上MAC ID參數
+            window.location.href = `/db-setting?mac_id=${encodeURIComponent(macId)}`;
+        }
+        
+        // 顯示/隱藏圖表區域
+        function toggleChartSection() {
+            const chartSection = document.getElementById('chartSection');
+            const chartDataSection = document.getElementById('chartDataSection');
+            
+            if (chartSection.style.display === 'none') {
+                showChartSection();
+            } else {
+                hideChartSection();
+            }
+        }
+        
+        function showChartSection() {
+            const chartSection = document.getElementById('chartSection');
+            const chartDataSection = document.getElementById('chartDataSection');
+            
+            // 檢查是否選擇了設備
+            if (!selectedDevice) {
+                alert('請先選擇一個設備以查看其數據圖表');
+                return;
+            }
+            
+            // 顯示圖表區域
+            chartSection.style.display = 'block';
+            chartDataSection.style.display = 'block';
+            
+            // 添加顯示動畫
+            chartSection.classList.remove('chart-section-hidden');
+            chartSection.classList.add('chart-section-visible');
+            chartDataSection.classList.remove('chart-section-hidden');
+            chartDataSection.classList.add('chart-section-visible');
+            
+            // 滾動到圖表區域
+            setTimeout(() => {
+                chartSection.scrollIntoView({ 
+                    behavior: 'smooth', 
+                    block: 'start' 
+                });
+            }, 100);
+            
+            // 載入選中設備的圖表數據
+            fetchChartDataForDevice(selectedDevice);
+            
+            // 啟動自動刷新（如果勾選）
+            if (document.getElementById('autoRefresh').checked) {
+                setupChartAutoRefresh();
+            }
+            
+            console.log(`圖表區域已顯示，當前設備: ${selectedDevice}`);
+        }
+        
+        function hideChartSection() {
+            const chartSection = document.getElementById('chartSection');
+            const chartDataSection = document.getElementById('chartDataSection');
+            
+            // 添加隱藏動畫
+            chartSection.classList.remove('chart-section-visible');
+            chartSection.classList.add('chart-section-hidden');
+            chartDataSection.classList.remove('chart-section-visible');
+            chartDataSection.classList.add('chart-section-hidden');
+            
+            // 延遲隱藏
+            setTimeout(() => {
+                chartSection.style.display = 'none';
+                chartDataSection.style.display = 'none';
+            }, 500);
+            
+            // 停止自動刷新
+            if (chartUpdateInterval) {
+                clearInterval(chartUpdateInterval);
+                chartUpdateInterval = null;
+            }
+            
+            // 清除圖表
+            clearAllCharts();
+            
+            console.log('圖表區域已隱藏');
+        }
+
+        // 更新時間顯示
+        function updateTime() {
+            const now = new Date();
+            const options = {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: false
+            };
+            document.getElementById('current-time').textContent = now.toLocaleString('zh-TW', options);
+        }
+
+        // 獲取並更新統計資料
+        async function updateStats() {
+            try {
+                const response = await fetch('/api/dashboard/stats');
+                const data = await response.json();
+                
+                if (data.success) {
+                    // 更新應用程式狀態
+                    const uartStatus = document.getElementById('uart-status');
+                    uartStatus.textContent = data.application.uart_running ? '運行中' : '已停止';
+                    uartStatus.className = data.application.uart_running ? 'status-online' : 'status-offline';
+                    
+                    document.getElementById('uart-count').textContent = data.application.uart_data_count;
+                    
+                    // 更新設備資訊
+                    if (data.device_settings) {
+                        updateDeviceInfo(data.device_settings);
+                    }
+                    
+                    // 同時更新 UART 卡片的背景顏色來更明顯地顯示狀態
+                    const uartCard = document.getElementById('uart-status').closest('.card');
+                    if (data.application.uart_running) {
+                        uartCard.style.borderLeft = '4px solid #28a745';
+                    } else {
+                        uartCard.style.borderLeft = '4px solid #dc3545';
+                    }
+                }
+            } catch (error) {
+                console.error('更新統計資料失敗:', error);
+                // 錯誤時顯示離線狀態
+                const uartStatus = document.getElementById('uart-status');
+                uartStatus.textContent = '連線錯誤';
+                uartStatus.className = 'status-offline';
+            }
+        }
+
+        // 專門的 UART 狀態更新函式（更頻繁的更新）
+        async function updateUartStatus() {
+            try {
+                const response = await fetch('/api/uart/status');
+                const data = await response.json();
+                
+                if (data.success) {
+                    const uartStatus = document.getElementById('uart-status');
+                    uartStatus.textContent = data.is_running ? '運行中' : '已停止';
+                    uartStatus.className = data.is_running ? 'status-online' : 'status-offline';
+                    
+                    document.getElementById('uart-count').textContent = data.data_count;
+                    
+                    // 更新 UART 卡片的視覺狀態
+                    const uartCard = document.getElementById('uart-status').closest('.card');
+                    if (data.is_running) {
+                        uartCard.style.borderLeft = '4px solid #28a745';
+                        uartCard.style.boxShadow = '0 2px 4px rgba(40, 167, 69, 0.2)';
+                    } else {
+                        uartCard.style.borderLeft = '4px solid #dc3545';
+                        uartCard.style.boxShadow = '0 2px 4px rgba(220, 53, 69, 0.2)';
+                    }
+                } else {
+                    // API 回傳錯誤時的處理
+                    const uartStatus = document.getElementById('uart-status');
+                    uartStatus.textContent = '狀態未知';
+                    uartStatus.className = 'status-offline';
+                }
+            } catch (error) {
+                console.error('更新 UART 狀態失敗:', error);
+                const uartStatus = document.getElementById('uart-status');
+                uartStatus.textContent = '連線錯誤';
+                uartStatus.className = 'status-offline';
+            }
+        }
+
+        // 重新整理資料
+        function refreshData() {
+            updateStats();
+            updateUartStatus(); // 同時更新 UART 狀態
+            updateTime();
+        }
+
+        // 匯出資料
+        function exportData() {
+            const exportData = {
+                timestamp: new Date().toISOString(),
+                device_info: {
+                    name: document.getElementById('device-name').textContent,
+                    location: document.getElementById('device-location').textContent,
+                    model: document.getElementById('device-model').textContent,
+                    serial: document.getElementById('device-serial').textContent
+                },
+                uart_info: {
+                    status: document.getElementById('uart-status').textContent,
+                    count: document.getElementById('uart-count').textContent
+                },
+                chart_data: chartData
+            };
+            
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const dataBlob = new Blob([dataStr], {type: 'application/json'});
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(dataBlob);
+            link.download = `dashboard_data_${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            link.click();
+        }
+
+        // 設備相關函數
+        function switchDevice() {
+            if (allDevices.length === 0) {
+                alert('目前沒有可用的設備');
+                return;
+            }
+            
+            // 建立設備選項列表
+            let deviceOptions = '請選擇要切換的設備:\n\n';
+            allDevices.forEach((device, index) => {
+                const deviceName = device.device_name || `設備 ${index + 1}`;
+                const status = device.is_active ? '(運行中)' : '(閒置)';
+                deviceOptions += `${index + 1}. ${deviceName} - ${device.mac_id} ${status}\n`;
+            });
+            
+            const choice = prompt(deviceOptions + '\n請輸入設備編號 (1-' + allDevices.length + '):');
+            
+            if (choice) {
+                const deviceIndex = parseInt(choice) - 1;
+                if (deviceIndex >= 0 && deviceIndex < allDevices.length) {
+                    const selectedMacId = allDevices[deviceIndex].mac_id;
+                    selectDevice(selectedMacId);
+                    
+                    // 如果圖表區域已顯示，重新載入數據
+                    const chartSection = document.getElementById('chartSection');
+                    if (chartSection.style.display !== 'none') {
+                        fetchChartDataForDevice(selectedMacId);
+                    }
+                    
+                    alert(`已切換到設備: ${allDevices[deviceIndex].device_name || selectedMacId}`);
+                } else {
+                    alert('無效的設備編號');
+                }
+            }
+        }
+
+        async function loadDeviceData() {
+            try {
+                console.log('正在重新載入所有設備資訊...');
+                await loadAllDevices();
+                console.log('所有設備資訊載入完成');
+                
+                // 如果圖表區域已經顯示且選擇了設備，才載入圖表數據
+                const chartSection = document.getElementById('chartSection');
+                if (chartSection.style.display !== 'none' && selectedDevice) {
+                    console.log('圖表區域已顯示，同時載入圖表數據');
+                    await fetchChartDataForDevice(selectedDevice);
+                }
+                
+            } catch (error) {
+                console.error('載入設備數據時發生錯誤:', error);
+                alert('載入設備數據失敗，請稍後再試');
+            }
+        }
+
+        function updateDeviceInfo(deviceData) {
+            // 這個函數現在主要用於更新單一設備的設定資訊
+            // 多設備資訊會透過 loadAllDevices 來處理
+            console.log('更新設備資訊:', deviceData);
+        }
+
+        // 圖表相關函式
+        function createChartForChannel(channelData) {
+            // 獲取當前選中設備的設備型號
+            const currentDevice = allDevices.find(d => d.mac_id === selectedDevice);
+            let channelDeviceModel = '未設定設備型號';
+            
+            // 特殊處理：Channel 7 為電池電壓，直接顯示「電池電源」
+            if (channelData.channel === 7) {
+                channelDeviceModel = '電池電源';
+            } else if (currentDevice && currentDevice.device_model) {
+                // 檢查設備型號的格式
+                if (typeof currentDevice.device_model === 'object') {
+                    // 新格式：多頻道對象，獲取該頻道的特定型號
+                    channelDeviceModel = currentDevice.device_model[channelData.channel] || '未設定設備型號';
+                } else if (typeof currentDevice.device_model === 'string' && currentDevice.device_model.trim()) {
+                    // 舊格式：單一字符串，所有頻道共用
+                    channelDeviceModel = currentDevice.device_model;
+                }
+            }
+            
+            // 如果沒有設備資訊，顯示未知設備（但 Channel 7 除外）
+            if (!currentDevice && channelData.channel !== 7) {
+                channelDeviceModel = '未知設備';
+            }
+            
+            // 創建圖表容器
+            const container = document.createElement('div');
+            container.className = 'mb-4';
+            container.innerHTML = `
+                <div class="card">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h6 class="mb-0">
+                            <i class="fas fa-chart-line me-2"></i>
+                            Channel ${channelData.channel} - ${channelData.unit === 'A' ? '電流' : '電壓'} (${channelData.unit})
+                            <span class="badge bg-info ms-2">${channelDeviceModel}</span>
+                        </h6>
+                        <small class="text-muted">數據點: ${channelData.data.length}</small>
+                    </div>
+                    <div class="card-body">
+                        <div class="chart-container" style="position: relative; height: 300px;">
+                            <canvas id="chart-channel-${channelData.channel}"></canvas>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('chartsContainer').appendChild(container);
+            
+            // 獲取 canvas 元素並創建圖表
+            const ctx = document.getElementById(`chart-channel-${channelData.channel}`).getContext('2d');
+            
+            // 根據通道類型設定顏色和Y軸配置
+            const isCurrentChannel = (channelData.channel >= 0 && channelData.channel <= 6);
+            const color = isCurrentChannel ? '#007bff' : '#28a745';
+            const yAxisTitle = isCurrentChannel ? '電流 (A)' : '電壓 (V)';
+            const maxValue = isCurrentChannel ? 
+                Math.max(50, Math.max(...channelData.data.map(point => point.parameter)) + 20) : 5;
+            
+            const chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: channelData.data.map(point => {
+                        const timestamp = new Date(point.timestamp);
+                        const options = {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            second: '2-digit',
+                            hour12: false
+                        };
+                        return timestamp.toLocaleString('zh-TW', options);
+                    }),
+                    datasets: [{
+                        label: `Channel ${channelData.channel} (${channelData.unit})`,
+                        data: channelData.data.map(point => point.parameter),
+                        borderColor: color,
+                        backgroundColor: color + '20',
+                        borderWidth: 3,
+                        tension: 0.1,
+                        fill: false,
+                        pointRadius: 3,
+                        pointHoverRadius: 6,
+                        pointHitRadius: 10,
+                        pointBorderWidth: 2,
+                        pointBorderColor: color,
+                        pointBackgroundColor: color,
+                        pointHoverBorderWidth: 3,
+                        spanGaps: true
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'nearest',
+                        intersect: false,
+                        axis: 'x'
+                    },
+                    plugins: {
+                        legend: {
+                            display: false  // 單通道圖表不需要圖例
+                        },
+                        tooltip: {
+                            mode: 'nearest',
+                            intersect: false,
+                            position: 'nearest',
+                            callbacks: {
+                                title: function(tooltipItems) {
+                                    return '時間: ' + tooltipItems[0].label;
+                                },
+                                label: function(context) {
+                                    const value = context.parsed.y;
+                                    return `數值: ${value.toFixed(3)} ${channelData.unit}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            title: {
+                                display: true,
+                                text: '時間'
+                            },
+                            type: 'category',
+                            ticks: {
+                                maxTicksLimit: 8,
+                                autoSkip: true,
+                                maxRotation: 45,
+                                minRotation: 0
+                            }
+                        },
+                        y: {
+                            type: 'linear',
+                            display: true,
+                            title: {
+                                display: true,
+                                text: yAxisTitle,
+                                color: color
+                            },
+                            ticks: {
+                                color: color,
+                                maxTicksLimit: 6
+                            },
+                            grid: {
+                                drawOnChartArea: true,
+                            },
+                            min: 0,
+                            max: maxValue
+                        }
+                    },
+                    elements: {
+                        point: {
+                            radius: 3,
+                            hoverRadius: 6,
+                            hitRadius: 10,
+                            pointStyle: 'circle'
+                        },
+                        line: {
+                            borderWidth: 3,
+                            tension: 0.1
+                        }
+                    },
+                    animation: {
+                        duration: 0
+                    }
+                }
+            });
+            
+            // 將圖表實例儲存到全域物件中
+            channelCharts[channelData.channel] = chart;
+            
+            return chart;
+        }
+
+        // 清理所有圖表
+        function clearAllCharts() {
+            // 銷毀所有圖表實例
+            Object.values(channelCharts).forEach(chart => {
+                if (chart) {
+                    chart.destroy();
+                }
+            });
+            channelCharts = {};
+            
+            // 清空容器
+            const container = document.getElementById('chartsContainer');
+            container.innerHTML = `
+                <div id="noDataPlaceholder" class="text-center py-5">
+                    <div class="text-muted">
+                        <i class="fas fa-chart-line fa-3x mb-3"></i>
+                        <h5>等待數據載入...</h5>
+                        <p>圖表將在數據可用時自動顯示</p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // 數據抽樣函式（避免圖表數據點過多影響效能）
+        function sampleData(data, maxPoints) {
+            if (!data || data.length <= maxPoints) {
+                return data;
+            }
+            
+            const step = Math.ceil(data.length / maxPoints);
+            const sampledData = [];
+            
+            for (let i = 0; i < data.length; i += step) {
+                sampledData.push(data[i]);
+            }
+            
+            return sampledData;
+        }
+
+        // 更新或創建圖表
+        function updateCharts() {
+            try {
+                if (!chartData || Object.keys(chartData).length === 0) {
+                    clearAllCharts();
+                    return;
+                }
+                
+                // 隱藏占位符
+                const placeholder = document.getElementById('noDataPlaceholder');
+                if (placeholder) {
+                    placeholder.style.display = 'none';
+                }
+                
+                // 對通道數據進行排序：電流通道(0-6)按小到大，電壓通道(7)排最後
+                const sortedChartData = [...chartData].sort((a, b) => {
+                    // 如果都是電流通道(0-6)，按通道號小到大排序
+                    if (a.channel <= 6 && b.channel <= 6) {
+                        return a.channel - b.channel;
+                    }
+                    // 如果都是電壓通道(7以上)，按通道號小到大排序
+                    if (a.channel > 6 && b.channel > 6) {
+                        return a.channel - b.channel;
+                    }
+                    // 電流通道排在電壓通道前面
+                    if (a.channel <= 6 && b.channel > 6) {
+                        return -1;
+                    }
+                    if (a.channel > 6 && b.channel <= 6) {
+                        return 1;
+                    }
+                    return 0;
+                });
+                
+                // 先清除所有現有圖表，然後按正確順序重新創建
+                Object.values(channelCharts).forEach(chart => {
+                    if (chart) {
+                        chart.destroy();
+                    }
+                });
+                channelCharts = {};
+                
+                // 清空容器
+                const chartsContainer = document.getElementById('chartsContainer');
+                chartsContainer.innerHTML = '';
+                
+                // 按排序後的順序創建圖表
+                sortedChartData.forEach(channelData => {
+                    createChartForChannel(channelData);
+                });
+                
+            } catch (error) {
+                console.error('更新圖表時發生錯誤:', error);
+                // 即使出錯也不要停止自動更新
+            }
+        }
+
+        // 獲取圖表數據
+        async function fetchChartData() {
+            if (selectedDevice) {
+                await fetchChartDataForDevice(selectedDevice);
+            } else {
+                console.warn('沒有選擇設備，無法載入圖表數據');
+            }
+        }
+        
+        // 獲取特定設備的圖表數據
+        async function fetchChartDataForDevice(macId) {
+            try {
+                // 更新連線狀態為檢查中
+                updateConnectionStatus('loading');
+                
+                const limit = document.getElementById('dataPointsSelect').value;
+                const channel = document.getElementById('channelSelect').value;
+                
+                const params = new URLSearchParams({ 
+                    limit,
+                    mac_id: macId
+                });
+                if (channel !== 'all') {
+                    params.append('channel', channel);
+                }
+                
+                // 添加超時設定
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 30000); // 30秒超時
+                
+                const response = await fetch(`/api/dashboard/chart-data?${params}`, {
+                    signal: controller.signal
+                });
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    chartData = data.data;
+                    updateChannelOptions();
+                    updateCharts(); // 使用多圖表更新函式
+                    updateChartStats(data);
+                    updateConnectionStatus('success');
+                    
+                    // 更新當前設備顯示
+                    const device = allDevices.find(d => d.mac_id === macId);
+                    if (device) {
+                        document.getElementById('current-device-display').textContent = 
+                            device.device_name || `設備 (${macId})`;
+                    }
+                    
+                    console.log(`設備 ${macId} 的圖表數據更新成功: ${new Date().toLocaleString('zh-TW')}`, data.data?.length || 0, '個通道');
+                } else {
+                    console.error('獲取圖表數據失敗:', data.message);
+                    updateConnectionStatus('error');
+                    // 不要停止自動刷新，讓它繼續嘗試
+                }
+            } catch (error) {
+                console.error('獲取圖表數據錯誤:', error);
+                updateConnectionStatus('error');
+                
+                // 如果是網路超時，記錄更詳細的訊息
+                if (error.name === 'AbortError') {
+                    console.warn(`設備 ${macId} 的圖表數據請求超時，將在下次週期重試`);
+                } else {
+                    console.warn(`設備 ${macId} 的圖表數據獲取失敗，將在下次週期重試:`, error.message);
+                }
+                
+                // 重要：不要在這裡停止自動刷新定時器
+                // 讓定時器繼續運行，在下個週期重試
+            }
+        }
+
+        // 更新圖表統計資訊
+        function updateChartStats(data) {
+            // 更新最後更新時間
+            document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-TW');
+            
+            // 如果有過濾的舊數據信息，在控制台顯示
+            if (data && data.filtered_old_data_count > 0) {
+                console.log(`已過濾 ${data.filtered_old_data_count} 筆超過30分鐘的舊數據`);
+            }
+        }
+
+        // 更新通道選項
+        function updateChannelOptions() {
+            const channelSelect = document.getElementById('channelSelect');
+            const currentValue = channelSelect.value;
+            
+            // 清除現有選項（除了"所有通道"）
+            while (channelSelect.children.length > 1) {
+                channelSelect.removeChild(channelSelect.lastChild);
+            }
+            
+            // 新增通道選項
+            const channels = new Set();
+            chartData.forEach(channelData => {
+                channels.add(channelData.channel);
+            });
+            
+            // 對通道進行排序：電流通道(0-6)按小到大，電壓通道(7以上)排最後
+            const sortedChannels = Array.from(channels).sort((a, b) => {
+                // 如果都是電流通道(0-6)，按通道號小到大排序
+                if (a <= 6 && b <= 6) {
+                    return a - b;
+                }
+                // 如果都是電壓通道(7以上)，按通道號小到大排序
+                if (a > 6 && b > 6) {
+                    return a - b;
+                }
+                // 電流通道排在電壓通道前面
+                if (a <= 6 && b > 6) {
+                    return -1;
+                }
+                if (a > 6 && b <= 6) {
+                    return 1;
+                }
+                return 0;
+            });
+            
+            sortedChannels.forEach(channel => {
+                const option = document.createElement('option');
+                option.value = channel;
+                const channelType = channel <= 6 ? '電流' : '電壓';
+                option.textContent = `Channel ${channel} (${channelType})`;
+                channelSelect.appendChild(option);
+            });
+            
+            // 恢復之前的選項（如果還存在）
+            if (Array.from(channelSelect.options).some(opt => opt.value === currentValue)) {
+                channelSelect.value = currentValue;
+            }
+        }
+
+        // 更新圖表顯示（當選項改變時）
+        function updateChartDisplay() {
+            fetchChartData();
+        }
+
+        // 刷新圖表數據
+        function refreshChartData() {
+            fetchChartData();
+        }
+
+        // 清除圖表數據
+        function clearChartData() {
+            clearAllCharts();
+            document.getElementById('lastUpdate').textContent = '--';
+        }
+
+        // 設定圖表自動刷新
+        function setupChartAutoRefresh() {
+            const autoRefreshCheckbox = document.getElementById('autoRefresh');
+            
+            function toggleAutoRefresh() {
+                // 清除現有的定時器
+                if (chartUpdateInterval) {
+                    clearInterval(chartUpdateInterval);
+                    chartUpdateInterval = null;
+                    console.log('已清除舊的圖表更新定時器');
+                }
+                
+                if (autoRefreshCheckbox.checked) {
+                    const interval = parseInt(document.getElementById('updateIntervalSelect').value);
+                    console.log(`設定圖表自動更新間隔: ${interval}ms`);
+                    
+                    // 立即執行一次
+                    fetchChartData();
+                    
+                    // 設定定時器
+                    chartUpdateInterval = setInterval(() => {
+                        console.log(`定時器觸發 - 開始更新圖表數據: ${new Date().toLocaleString('zh-TW')}`);
+                        fetchChartData();
+                    }, interval);
+                    
+                    updateFrequencyDisplay();
+                    console.log('圖表自動刷新已啟用');
+                } else {
+                    document.getElementById('updateFrequency').textContent = '手動';
+                    console.log('圖表自動刷新已停用');
+                }
+            }
+            
+            autoRefreshCheckbox.addEventListener('change', toggleAutoRefresh);
+            toggleAutoRefresh(); // 初始化
+        }
+
+        // 更新刷新間隔
+        function updateRefreshInterval() {
+            if (document.getElementById('autoRefresh').checked) {
+                // 重新設定自動刷新
+                setupChartAutoRefresh();
+            } else {
+                // 更新顯示文字
+                updateFrequencyDisplay();
+            }
+        }
+
+        // 更新頻率顯示文字
+        function updateFrequencyDisplay() {
+            const interval = parseInt(document.getElementById('updateIntervalSelect').value);
+            let displayText;
+            
+            if (interval < 1000) {
+                displayText = `每${interval/1000}秒`;
+            } else if (interval < 60000) {
+                const seconds = interval / 1000;
+                displayText = seconds === 1 ? '每秒' : `每${seconds}秒`;
+            } else {
+                const minutes = interval / 60000;
+                displayText = minutes === 1 ? '每分鐘' : `每${minutes}分鐘`;
+            }
+            
+            document.getElementById('updateFrequency').textContent = 
+                document.getElementById('autoRefresh').checked ? displayText : '手動';
+        }
+
+        // 更新設備設定資訊 (現在主要用於系統級設定)
+        async function updateDeviceSettings() {
+            // 在多設備模式下，這個函數可能不再需要，因為設備資訊會透過 loadAllDevices 獲得
+            console.log('系統設定檢查完成');
+        }
+
+        // 更新連線狀態指示器
+        function updateConnectionStatus(status) {
+            const statusElement = document.getElementById('connectionStatus');
+            
+            switch(status) {
+                case 'loading':
+                    statusElement.className = 'badge bg-warning';
+                    statusElement.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>檢查中';
+                    break;
+                case 'success':
+                    statusElement.className = 'badge bg-success';
+                    statusElement.innerHTML = '<i class="fas fa-circle me-1"></i>正常';
+                    break;
+                case 'error':
+                    statusElement.className = 'badge bg-danger';
+                    statusElement.innerHTML = '<i class="fas fa-exclamation-triangle me-1"></i>錯誤';
+                    break;
+                default:
+                    statusElement.className = 'badge bg-secondary';
+                    statusElement.innerHTML = '<i class="fas fa-question-circle me-1"></i>未知';
+            }
+        }
+
+        // 頁面載入完成後初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            updateTime();
+            updateStats();
+            updateUartStatus(); // 立即更新一次 UART 狀態
+            
+            // 載入所有設備資訊
+            loadAllDevices();
+            
+            // 不再自動載入圖表數據，改為用戶點選後才載入
+            updateFrequencyDisplay(); // 初始化頻率顯示
+            
+            // 每 5 秒更新一次完整資料
+            setInterval(updateStats, 5000);
+            // 每 2 秒更新一次 UART 狀態（更頻繁）
+            setInterval(updateUartStatus, 2000);
+            // 每秒更新時間
+            setInterval(updateTime, 1000);
+            // 每 10 秒更新設備列表
+            setInterval(loadAllDevices, 10000);
+            
+            // 添加頁面可見性變化監聽（防止標籤頁休眠問題）
+            document.addEventListener('visibilitychange', function() {
+                if (!document.hidden) {
+                    console.log('頁面重新可見，檢查圖表是否需要重新初始化');
+                    // 重新載入設備列表
+                    loadAllDevices();
+                    // 只有在圖表區域可見時才重新設定自動刷新
+                    const chartSection = document.getElementById('chartSection');
+                    if (chartSection.style.display !== 'none') {
+                        setupChartAutoRefresh();
+                    }
+                } else {
+                    console.log('頁面已隱藏');
+                }
+            });
+            
+            // 添加網頁失焦/聚焦監聽
+            window.addEventListener('focus', function() {
+                console.log('視窗重新聚焦');
+                // 重新載入設備列表
+                loadAllDevices();
+                const chartSection = document.getElementById('chartSection');
+                // 只有在圖表區域可見且開啟自動刷新時才立即更新
+                if (chartSection.style.display !== 'none' && document.getElementById('autoRefresh').checked && selectedDevice) {
+                    fetchChartDataForDevice(selectedDevice); // 立即更新一次
+                }
+            });
+            
+            console.log('Dashboard 初始化完成 - 多設備支援模式');
+        });
+    </script>
+</body>
+</html>

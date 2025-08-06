@@ -907,6 +907,76 @@ def dashboard_devices():
             'devices': []
         })
 
+@app.route('/api/dashboard/overview')
+def dashboard_overview_api():
+    """API: 儀表板總覽頁面專用 - 提供綜合統計資訊"""
+    try:
+        # 獲取系統統計
+        stats_response = dashboard_stats()
+        stats_data = stats_response.get_json() if hasattr(stats_response, 'get_json') else {}
+        
+        # 獲取設備資訊
+        devices_response = dashboard_devices()
+        devices_data = devices_response.get_json() if hasattr(devices_response, 'get_json') else {}
+        
+        # 獲取 MAC ID 列表
+        mac_response = get_uart_mac_ids()
+        mac_data = mac_response.get_json() if hasattr(mac_response, 'get_json') else {}
+        
+        # 計算總覽統計
+        total_devices = devices_data.get('total_devices', 0) if devices_data.get('success') else 0
+        online_devices = 0
+        total_data_count = 0
+        
+        if devices_data.get('success') and devices_data.get('devices'):
+            for device in devices_data['devices']:
+                if device.get('is_active', False):
+                    online_devices += 1
+                total_data_count += device.get('data_count', 0)
+        
+        # 系統資訊
+        system_info = {}
+        if stats_data.get('success') and stats_data.get('system'):
+            system_info = stats_data['system']
+        
+        # 構建回應
+        overview_data = {
+            'success': True,
+            'system': {
+                'total_devices': total_devices,
+                'online_devices': online_devices,
+                'total_data_count': total_data_count,
+                'cpu_percent': system_info.get('cpu_percent', 0),
+                'memory_percent': system_info.get('memory', {}).get('percent', 0),
+                'disk_percent': system_info.get('disk', {}).get('percent', 0),
+                'network_active': bool(system_info.get('network', {})),
+                'boot_time': system_info.get('boot_time'),
+                'mac_count': len(mac_data.get('mac_ids', [])) if mac_data.get('success') else 0
+            },
+            'statistics': {
+                'devices_configured': total_devices,
+                'active_connections': online_devices,
+                'today_data_count': total_data_count,  # 可以進一步過濾今日數據
+                'avg_data_rate': '10筆/分',  # 模擬數據，實際可計算
+                'data_accuracy': '99.5%',   # 模擬數據
+                'protocol_count': 3,        # UART, TCP, UDP
+                'config_status': 'normal',
+                'last_backup': 'yesterday'  # 模擬數據
+            },
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        return jsonify(overview_data)
+    
+    except Exception as e:
+        logging.exception(f'獲取總覽統計時發生錯誤: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': f'獲取總覽統計失敗: {str(e)}',
+            'system': {},
+            'statistics': {}
+        })
+
 # 協定設定頁面
 @app.route('/protocol-config/<protocol>')
 def protocol_config(protocol):
@@ -1033,6 +1103,13 @@ def config_summary():
         }
     
     return render_template('config_summary.html', configs=all_configs)
+
+# 儀表板總覽頁面
+@app.route('/11')
+def dashboard_11():
+    """儀表板總覽頁面 (11.html)"""
+    logging.info(f'訪問儀表板總覽頁面 11.html, remote_addr={request.remote_addr}')
+    return render_template('11.html')
 
 # 應用介面
 @app.route('/application/<protocol>')

@@ -24,6 +24,7 @@ class ServiceManager:
             env = os.environ.copy()
             env['PYTHONPATH'] = os.getcwd()
             env['PYTHONIOENCODING'] = 'utf-8'  # 確保 Python 子程序使用 UTF-8 編碼
+            env['PYTHONUNBUFFERED'] = '1'  # 確保輸出不被緩衝
             
             # 啟動 Python 腳本
             process = subprocess.Popen(
@@ -35,7 +36,7 @@ class ServiceManager:
                 bufsize=1,
                 universal_newlines=True,
                 encoding='utf-8',
-                errors='replace'
+                errors='replace'  # 遇到編碼錯誤時替換為佔位符而不是崩潰
             )
             
             self.processes[name] = {
@@ -66,7 +67,14 @@ class ServiceManager:
             def monitor_stdout():
                 for line in iter(process.stdout.readline, ''):
                     if self.running and line.strip():
-                        print(f"[{service_name}] {line.strip()}")
+                        try:
+                            # 確保線內容是可顯示的
+                            line_content = line.strip().encode('utf-8', 'replace').decode('utf-8')
+                            print(f"[{service_name}] {line_content}")
+                        except Exception as e:
+                            # 如果還是有編碼問題，使用 repr
+                            print(f"[{service_name}] {repr(line.strip())}")
+                            print(f"[{service_name}][ERROR] 輸出編碼錯誤: {e}")
             
             # 監控錯誤輸出
             def monitor_stderr():
@@ -74,6 +82,12 @@ class ServiceManager:
                     if self.running and line.strip():
                         # 檢查是否是實際錯誤還是普通日誌
                         line_content = line.strip()
+                        try:
+                            # 確保線內容是可顯示的
+                            line_content = line_content.encode('utf-8', 'replace').decode('utf-8')
+                        except Exception:
+                            line_content = repr(line_content)  # 如果編碼還是有問題，使用 repr
+                            
                         if any(level in line_content for level in ['[ERROR]', '[CRITICAL]', 'Traceback', 'Exception', 'Error:']):
                             print(f"[{service_name}][ERROR] {line_content}")
                         elif any(level in line_content for level in ['[INFO]', '[DEBUG]', '[WARNING]']):

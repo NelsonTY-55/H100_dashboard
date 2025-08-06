@@ -41,7 +41,7 @@
     },
     "TCP": {
       "host": "127.0.0.1",
-      "port": 5020,
+      "port": 5022,
       "timeout": 10,
       "retry_count": 3,
       "configured": true
