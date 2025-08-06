@@ -925,122 +925,123 @@
 
         // 載入 MAC ID 選單
         async function loadMacIds() {
+            const statusSpan = document.getElementById('macStatus');
             try {
+                const sel = document.getElementById('macSelector');
+                sel.innerHTML = ''; // 清空現有選項
+                
+                // 加入預設選項
+                const defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = '所有設備';
+                sel.appendChild(defaultOpt);
+                
                 const res = await fetch('/api/uart/mac-ids');
                 const data = await res.json();
                 if (data.success && Array.isArray(data.mac_ids)) {
-                    const sel = document.getElementById('macSelector');
                     data.mac_ids.forEach(id => {
                         const opt = document.createElement('option');
                         opt.value = id;
                         opt.textContent = id;
                         sel.appendChild(opt);
                     });
+                    console.log('載入了', data.mac_ids.length, '個 MAC ID');
+                    
+                    // 更新狀態顯示
+                    if (statusSpan) {
+                        statusSpan.textContent = `${data.mac_ids.length} 個設備`;
+                        statusSpan.className = 'badge bg-success';
+                    }
+                } else {
+                    if (statusSpan) {
+                        statusSpan.textContent = '無設備';
+                        statusSpan.className = 'badge bg-warning';
+                    }
                 }
             } catch (e) {
                 console.error('載入 MAC ID 失敗', e);
-            }
-        }
-
-        // 顯示 UART 即時數據圖表
-        async function showUartChart() {
-            try {
-                const mac = document.getElementById('macSelector').value;
-                const url = mac ? `/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}` : '/api/dashboard/chart-data';
-                const res = await fetch(url);
-                const result = await res.json();
-                if (!result.success || !Array.isArray(result.data)) {
-                    renderDualAxisChart([]);
-                    return;
+                const statusSpan = document.getElementById('macStatus');
+                if (statusSpan) {
+                    statusSpan.textContent = '載入失敗';
+                    statusSpan.className = 'badge bg-danger';
                 }
-                const now = new Date();
-                const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000); // 顯示過去 30 分鐘的數據
-                const datasets = result.data.map(chan => {
-                    const pts = chan.data
-                        .map(e => ({x: new Date(e.timestamp), y: e.parameter}))
-                        .filter(pt => pt.x >= thirtyMinAgo);
-                    return { channel: chan.channel, data: pts };
-                });
-                renderDualAxisChart(datasets);
-            } catch (e) {
-                renderDualAxisChart([]);
             }
-        }
-
-        function renderDualAxisChart(channelDatasets) {
-            const ctx = document.getElementById('dashboardChart').getContext('2d');
-            if (dashboardChart) dashboardChart.destroy();
-            const palette = ['#2563eb','#f43f5e','#10b981','#d946ef','#f59e0b','#3b82f6','#8b5cf6','#e11d48'];
-            const dataSets = channelDatasets.map((ch, idx) => ({
-                label: 'CH ' + ch.channel,
-                data: ch.data,
-                parsing: { xAxisKey: 'x', yAxisKey: 'y' },
-                borderColor: palette[idx % palette.length],
-                backgroundColor: palette[idx % palette.length] + '33',
-                yAxisID: ch.channel === 7 ? 'battery' : 'current',
-                pointRadius: 2,
-                tension: 0.3
-            }));
-            dashboardChart = new Chart(ctx, {
-                type: 'line',
-                data: { datasets: dataSets },
-                options: {
-                    responsive: true,
-                    scales: {
-                        x: {
-                            type: 'time',
-                            time: { unit: 'minute', tooltipFormat: 'HH:mm', displayFormats: { minute: 'HH:mm' } },
-                            title: { display: true, text: '時間' }
-                        },
-                        current: {
-                            type: 'linear',
-                            position: 'left',
-                            title: { display: true, text: '電流' },
-                            min: 0,
-                            max: 100
-                        },
-                        battery: {
-                            type: 'linear',
-                            position: 'right',
-                            title: { display: true, text: '電池電壓' },
-                            grid: { drawOnChartArea: false },
-                            min: 2,
-                            max: 4.5
-                        }
-                    },
-                    plugins: { legend: { position: 'bottom' } }
-                }
-            });
         }
         document.addEventListener('DOMContentLoaded', function() {
+            console.log('頁面載入完成，初始化儀表板...');
+            
+            // 載入基礎數據
             loadMacIds();
-            // 初次載入圖表與統計
-            showUartChart();
             loadDashboardStats();
-            // 定期更新圖表
-            setInterval(showUartChart, 5000);
-            // 下拉選單變動時更新圖表與統計
-            document.getElementById('macSelector').addEventListener('change', () => {
+            
+            // 初次載入圖表
+            showUartChart();
+            
+            // 設置自動刷新（使用全域變數管理）
+            console.log('📡 設置優化的自動刷新機制：每3秒更新圖表（確保30秒內顯示新數據）');
+            window.chartRefreshInterval = setInterval(() => {
+                console.log('🔄 自動刷新圖表...');
                 showUartChart();
-                loadDashboardStats();
-            });
-            setInterval(loadDashboardStats, 5000);
-            drawCpuGauge(0);
-            loadRegionDeviceCounts();
-            setInterval(loadRegionDeviceCounts, 10000);
-            // 初始化並定時更新時間
-            updateCurrentTime();
-            setInterval(updateCurrentTime, 1000);
-            // 點擊時間時立即刷新
-            document.getElementById('current-time').addEventListener('click', updateCurrentTime);
-            // 使用 SSE 實現即時更新
-            if (window.EventSource) {
-                const source = new EventSource('/api/uart/stream');
-                source.onmessage = function(event) {
+            }, 3000); // 從 5000ms 改為 3000ms 確保更快響應
+            
+            // MAC選擇器變動時的處理
+            const macSelector = document.getElementById('macSelector');
+            if (macSelector) {
+                macSelector.addEventListener('change', (event) => {
+                    console.log('MAC ID 選擇已變更為:', event.target.value);
+                    
+                    // 暫停自動刷新避免衝突
+                    if (window.chartRefreshInterval) {
+                        clearInterval(window.chartRefreshInterval);
+                    }
+                    
+                    // 立即更新圖表和統計
                     showUartChart();
                     loadDashboardStats();
-                };
+                    
+                    // 視覺回饋
+                    const chartContainer = document.querySelector('.chart-container');
+                    if (chartContainer) {
+                        chartContainer.style.opacity = '0.7';
+                        setTimeout(() => {
+                            chartContainer.style.opacity = '1';
+                        }, 800);
+                    }
+                    
+                    // 重新啟動自動刷新
+                    setTimeout(() => {
+                        if (autoRefreshEnabled) {
+                            window.chartRefreshInterval = setInterval(() => {
+                                console.log('🔄 自動刷新圖表...');
+                                showUartChart();
+                            }, 3000); // 保持 3000ms 間隔
+                        }
+                    }, 1000);
+                });
             }
+            
+            // 定期更新統計數據（獨立於圖表更新）
+            setInterval(() => {
+                console.log('📊 自動更新統計數據...');
+                loadDashboardStats();
+            }, 12000); // 每12秒更新統計，避免與圖表更新衝突
+            
+            // 初始化其他組件
+            drawCpuGauge(0);
+            
+            // 定期更新時間顯示
+            updateCurrentTime();
+            setInterval(updateCurrentTime, 1000);
+            
+            // 時間點擊事件
+            const timeElement = document.getElementById('current-time');
+            if (timeElement) {
+                timeElement.addEventListener('click', updateCurrentTime);
+                timeElement.style.cursor = 'pointer';
+                timeElement.title = '點擊立即更新時間';
+            }
+            
+            console.log('儀表板初始化完成');
         });
         </script>
 
@@ -1077,9 +1078,11 @@
                                     網路狀態
                                 </button>
                             </div>
-                            <div class="mt-2 d-flex justify-content-center">
-                                <select id="macSelector" class="form-select form-select-sm w-auto">
+                            <div class="mt-2 d-flex justify-content-center align-items-center">
+                                <label for="macSelector" class="form-label me-2 mb-0 text-muted small">設備選擇:</label>
+                                <select id="macSelector" class="form-select form-select-sm w-auto me-2">
                                 </select>
+                                <span class="badge bg-info" id="macStatus">載入中...</span>
                             </div>
                         </div>
                         
@@ -1091,99 +1094,6 @@
                                 <i class="fas fa-network-wired fa-3x mb-3 text-primary"></i>
                                 <h4 id="networkStatusText">檢查中...</h4>
                                 <p class="text-muted">正在檢查外部網路連線狀態</p>
-                            </div>
-                        </div>
-                        
-                        <!-- Chart Controls -->
-                        <div class="d-flex justify-content-between align-items-center mt-3">
-                            <div>
-                                <button class="btn btn-primary btn-sm" onclick="downloadChartImage()">
-                                    <i class="fas fa-download me-1"></i>
-                                    下載圖表
-                                </button>
-                            </div>
-                            <div>
-                                <span class="text-muted me-2" id="chartTimeRange">過去 30 分鐘</span>
-                                <button class="btn btn-light btn-sm" onclick="changeChartTime(-1)">
-                                    <i class="fas fa-chevron-left"></i>
-                                </button>
-                                <button class="btn btn-light btn-sm" onclick="changeChartTime(1)">
-                                    <i class="fas fa-chevron-right"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <!-- Device Info Section -->
-            <div class="col-xl-4 col-lg-5">
-                <div class="row g-4">
-                    <!-- 總覽卡片 -->
-                    <div class="col-12">
-                        <div class="main-content-card animate__animated animate__fadeInRight">
-                            <div class="card-header">
-                                <h5 class="mb-0">
-                                    <i class="fas fa-info-circle me-2"></i>
-                                    總覽
-                                </h5>
-                            </div>
-                            <div class="card-body">
-                                <div class="device-info-grid">
-                                    <!-- 單一設備資訊卡片範本 -->
-                                    <div class="device-info-card animate__animated animate__fadeInUp" style="animation-delay: 0.1s;">
-                                        <div class="device-info-item">
-                                            <div class="device-info-label">
-                                                <i class="fas fa-desktop"></i>
-                                                設備名稱
-                                            </div>
-                                            <div class="device-info-value" id="deviceName">H100-001</div>
-                                        </div>
-                                        <div class="device-info-item">
-                                            <div class="device-info-label">
-                                                <i class="fas fa-map-marker-alt"></i>
-                                                地點
-                                            </div>
-                                            <div class="device-info-value" id="deviceLocation">大樓一樓</div>
-                                        </div>
-                                        <div class="device-info-item">
-                                            <div class="device-info-label">
-                                                <i class="fas fa-plug"></i>
-                                                連線狀態
-                                            </div>
-                                            <div class="device-info-value" id="deviceStatus">
-                                                <span class="status-indicator status-online">
-                                                    <i class="fas fa-circle me-1"></i>
-                                                    在線
-                                                </span>
-                                            </div>
-                                        </div>
-                                        <div class="device-info-item">
-                                            <div class="device-info-label">
-                                                <i class="fas fa-clock"></i>
-                                                上線時間
-                                            </div>
-                                            <div class="device-info-value" id="deviceUptime">12 天 4 小時</div>
-                                        </div>
-                                    </div>
-                                    <!-- 其他設備資訊卡片... -->
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <!-- 近期活動卡片 -->
-                    <div class="col-12">
-                        <div class="main-content-card animate__animated animate__fadeInRight">
-                            <div class="card-header">
-                                <h5 class="mb-0">
-                                    <i class="fas fa-history me-2"></i>
-                                    近期活動
-                                </h5>
-                            </div>
-                            <div class="card-body">
-                                <div id="recentActivities" class="text-muted" style="min-height: 100px;">
-                                    <i class="fas fa-spinner fa-spin me-2"></i>
-                                    載入中...
-                                </div>
                             </div>
                         </div>
                     </div>
@@ -1235,73 +1145,534 @@
 
     // 顯示 UART 即時數據圖表（支援 MAC 選擇）
     async function showUartChart() {
+        const startTime = Date.now();
+        console.log('🔄 showUartChart 開始執行...');
+        
         try {
             const mac = document.getElementById('macSelector').value;
-            const endpoint = mac ? `/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}` : '/api/dashboard/chart-data';
-            const res = await fetch(endpoint);
+            console.log('📍 選擇的 MAC ID:', mac || '所有設備');
+            
+            // 構建API端點 - 增加更多參數確保獲取最新數據
+            const endpoint = mac 
+                ? `/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}&limit=50000` 
+                : '/api/dashboard/chart-data?limit=50000';
+            
+            console.log('🌐 API 端點:', endpoint);
+            
+            // 添加時間戳避免緩存
+            const timestampedEndpoint = `${endpoint}&_t=${Date.now()}`;
+            const res = await fetch(timestampedEndpoint, {
+                method: 'GET',
+                cache: 'no-cache',
+                headers: {
+                    'Cache-Control': 'no-cache',
+                    'Pragma': 'no-cache'
+                }
+            });
+            
+            if (!res.ok) {
+                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+            }
+            
             const result = await res.json();
+            console.log('📊 API 回應狀態:', result.success ? '成功' : '失敗');
+            console.log('📈 原始數據:', result);
+            
             if (!result.success || !Array.isArray(result.data)) {
+                console.warn('⚠️  API 回應無效或無資料');
                 renderDualAxisChart([]);
                 return;
             }
+            
+            // 動態時間窗口 - 根據數據量調整
             const now = new Date();
-            const thirtyMinAgo = new Date(now.getTime() - 30 * 60 * 1000); // 顯示過去 30 分鐘的數據
+            let timeLimit;
+            const totalDataPoints = result.data.reduce((sum, ch) => sum + (ch.data ? ch.data.length : 0), 0);
+            
+            if (totalDataPoints > 1000) {
+                // 數據多時顯示最近30分鐘
+                timeLimit = new Date(now.getTime() - 30 * 60 * 1000);
+                console.log('⏰ 使用30分鐘時間窗口 (數據量:', totalDataPoints, ')');
+            } else {
+                // 數據少時顯示最近2小時
+                timeLimit = new Date(now.getTime() - 120 * 60 * 1000);
+                console.log('⏰ 使用2小時時間窗口 (數據量:', totalDataPoints, ')');
+            }
+            
             const datasets = result.data.map(chan => {
-                const pts = chan.data
-                    .map(e => ({x: new Date(e.timestamp), y: e.parameter}))
-                    .filter(pt => pt.x >= thirtyMinAgo);
-                return { channel: chan.channel, data: pts };
+                if (!chan.data || !Array.isArray(chan.data)) {
+                    console.warn(`⚠️  通道 ${chan.channel} 無數據`);
+                    return { channel: chan.channel, data: [] };
+                }
+                
+                let pts = chan.data.map(e => {
+                    const timestamp = new Date(e.timestamp);
+                    return {
+                        x: timestamp, 
+                        y: parseFloat(e.parameter) || 0,
+                        mac_id: e.mac_id
+                    };
+                }).filter(pt => !isNaN(pt.x.getTime())); // 過濾無效時間戳
+                
+                // 按時間排序（最新的在後）
+                pts.sort((a, b) => a.x - b.x);
+                
+                // 過濾時間範圍
+                const recentPts = pts.filter(pt => pt.x >= timeLimit);
+                
+                if (recentPts.length === 0 && pts.length > 0) {
+                    // 如果時間範圍內無數據，取最新的100筆
+                    pts = pts.slice(-100);
+                    console.log(`📈 通道 ${chan.channel}: 時間範圍外，顯示最新 ${pts.length} 筆資料`);
+                } else {
+                    pts = recentPts;
+                    console.log(`📈 通道 ${chan.channel}: 時間範圍內 ${pts.length} 筆資料`);
+                }
+                
+                return { channel: chan.channel, data: pts, unit: chan.unit };
             });
+            
+            console.log('✅ 處理後的資料集:', datasets.map(ds => `CH${ds.channel}:${ds.data.length}筆`).join(', '));
+            
+            // 渲染圖表
             renderDualAxisChart(datasets);
+            
+            // 更新時間範圍顯示
+            const totalPoints = datasets.reduce((sum, ds) => sum + ds.data.length, 0);
+            const timeRangeElement = document.getElementById('chartTimeRange');
+            if (timeRangeElement) {
+                const macInfo = mac ? ` (${mac})` : '';
+                const timeWindow = totalDataPoints > 1000 ? '30分鐘' : '2小時';
+                const now = new Date();
+                timeRangeElement.textContent = `過去 ${timeWindow}${macInfo} - ${totalPoints} 筆資料`;
+                timeRangeElement.title = `最後更新: ${now.toLocaleString('zh-TW', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                })}`;
+            }
+            
+            // 更新頁面標題指示最後更新時間
+            const originalTitle = document.title;
+            const baseTitle = originalTitle.includes(' - ') ? originalTitle.split(' - ')[0] : originalTitle;
+            const currentTime = new Date().toLocaleTimeString('zh-TW', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit'
+            });
+            document.title = `${baseTitle} - ${currentTime}`;
+            
+            const executionTime = Date.now() - startTime;
+            console.log(`✅ showUartChart 執行完成，耗時 ${executionTime}ms`);
+            
         } catch (e) {
+            const executionTime = Date.now() - startTime;
+            console.error(`❌ showUartChart 錯誤 (耗時 ${executionTime}ms):`, e);
+            
+            // 錯誤時顯示空圖表
             renderDualAxisChart([]);
+            
+            // 更新狀態顯示
+            const timeRangeElement = document.getElementById('chartTimeRange');
+            if (timeRangeElement) {
+                timeRangeElement.textContent = '數據載入失敗';
+                timeRangeElement.className = 'text-danger';
+            }
         }
     }
 
     function renderDualAxisChart(channelDatasets) {
-        const ctx = document.getElementById('dashboardChart').getContext('2d');
-        if (dashboardChart) dashboardChart.destroy();
-        const palette = ['#2563eb','#f43f5e','#10b981','#d946ef','#f59e0b','#3b82f6','#8b5cf6','#e11d48'];
-        const dataSets = channelDatasets.map((ch, idx) => ({
-            label: 'CH ' + ch.channel,
-            data: ch.data,
-            parsing: { xAxisKey: 'x', yAxisKey: 'y' },
-            borderColor: palette[idx % palette.length],
-            backgroundColor: palette[idx % palette.length] + '33',
-            yAxisID: ch.channel === 7 ? 'battery' : 'current',
-            pointRadius: 2,
-            tension: 0.3
-        }));
-        dashboardChart = new Chart(ctx, {
-            type: 'line',
-            data: { datasets: dataSets },
-            options: {
-                responsive: true,
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: { unit: 'minute', tooltipFormat: 'HH:mm', displayFormats: { minute: 'HH:mm' } },
-                        title: { display: true, text: '時間' }
-                    },
-                    current: {
-                        type: 'linear',
-                        position: 'left',
-                        title: { display: true, text: '電流' },
-                        min: 0,
-                        max: 100
-                    },
-                    battery: {
-                        type: 'linear',
-                        position: 'right',
-                        title: { display: true, text: '電池電壓' },
-                        grid: { drawOnChartArea: false },
-                        min: 2,
-                        max: 4.5
-                    }
-                },
-                plugins: { legend: { position: 'bottom' } }
+        console.log('🎨 renderDualAxisChart 開始繪製圖表，資料集數量:', channelDatasets.length);
+        
+        const ctx = document.getElementById('dashboardChart');
+        if (!ctx) {
+            console.error('❌ 找不到圖表 canvas 元素');
+            return;
+        }
+        
+        const context2d = ctx.getContext('2d');
+        if (!context2d) {
+            console.error('❌ 無法獲取 2D 繪圖上下文');
+            return;
+        }
+        
+        // 確保先銷毀舊圖表
+        if (dashboardChart) {
+            console.log('🗑️  銷毀舊圖表');
+            try {
+                dashboardChart.destroy();
+                dashboardChart = null;
+            } catch (e) {
+                console.warn('⚠️  銷毀舊圖表時發生錯誤:', e);
+                dashboardChart = null;
             }
+        }
+        
+        // 如果沒有數據，顯示空圖表提示
+        if (!channelDatasets || channelDatasets.length === 0) {
+            console.log('📋 無數據，顯示空圖表');
+            try {
+                dashboardChart = new Chart(context2d, {
+                    type: 'line',
+                    data: { datasets: [] },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            title: { 
+                                display: true, 
+                                text: '暫無數據，請檢查UART連接或等待數據更新',
+                                color: '#666'
+                            }
+                        },
+                        scales: {
+                            x: { display: false },
+                            y: { display: false }
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error('❌ 創建空圖表失敗:', e);
+            }
+            return;
+        }
+        
+        const palette = ['#2563eb','#f43f5e','#10b981','#d946ef','#f59e0b','#3b82f6','#8b5cf6','#e11d48'];
+        
+        const dataSets = channelDatasets.map((ch, idx) => {
+            const dataPoints = ch.data || [];
+            console.log(`📊 通道 ${ch.channel}: ${dataPoints.length} 個數據點`);
+            
+            return {
+                label: `CH${ch.channel}${ch.unit ? ` (${ch.unit})` : ''}`,
+                data: dataPoints,
+                parsing: { xAxisKey: 'x', yAxisKey: 'y' },
+                borderColor: palette[idx % palette.length],
+                backgroundColor: palette[idx % palette.length] + '20',
+                yAxisID: ch.channel === 7 ? 'battery' : 'current',
+                pointRadius: dataPoints.length > 100 ? 1 : 2, // 數據多時縮小點的大小
+                pointHoverRadius: 4,
+                tension: 0.3,
+                fill: false,
+                borderWidth: 2
+            };
         });
+        
+        console.log('🎨 建立新圖表，資料集數量:', dataSets.length);
+        
+        // 計算時間範圍來決定最佳的時間單位
+        let timeUnit = 'minute';
+        let timeDisplayFormat = 'HH:mm:ss';
+        
+        if (channelDatasets.length > 0) {
+            const allDataPoints = channelDatasets.flatMap(ch => ch.data || []);
+            if (allDataPoints.length > 1) {
+                const timestamps = allDataPoints.map(pt => pt.x.getTime()).sort((a, b) => a - b);
+                const timeSpan = timestamps[timestamps.length - 1] - timestamps[0]; // 毫秒
+                
+                if (timeSpan < 5 * 60 * 1000) { // 少於5分鐘
+                    timeUnit = 'second';
+                    timeDisplayFormat = 'HH:mm:ss';
+                } else if (timeSpan < 2 * 60 * 60 * 1000) { // 少於2小時
+                    timeUnit = 'minute';
+                    timeDisplayFormat = 'HH:mm:ss';
+                } else { // 超過2小時
+                    timeUnit = 'hour';
+                    timeDisplayFormat = 'MM/dd HH:mm';
+                }
+                
+                console.log(`⏰ 時間範圍: ${(timeSpan / 1000 / 60).toFixed(1)}分鐘，使用時間單位: ${timeUnit}`);
+            }
+        }
+        
+        try {
+            dashboardChart = new Chart(context2d, {
+                type: 'line',
+                data: { datasets: dataSets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: 'index',
+                        intersect: false,
+                    },
+                    animation: {
+                        duration: 300 // 快速動畫避免閃爍
+                    },
+                    plugins: {
+                        legend: { 
+                            position: 'bottom',
+                            labels: {
+                                usePointStyle: true,
+                                padding: 15,
+                                font: { size: 11 }
+                            }
+                        },
+                        tooltip: {
+                            backgroundColor: 'rgba(255,255,255,0.95)',
+                            titleColor: '#333',
+                            bodyColor: '#666',
+                            borderColor: '#ddd',
+                            borderWidth: 1,
+                            cornerRadius: 8,
+                            displayColors: true,
+                            callbacks: {
+                                title: function(context) {
+                                    if (context.length > 0) {
+                                        const date = new Date(context[0].parsed.x);
+                                        return date.toLocaleString('zh-TW', {
+                                            year: 'numeric',
+                                            month: '2-digit',
+                                            day: '2-digit',
+                                            hour: '2-digit',
+                                            minute: '2-digit',
+                                            second: '2-digit'
+                                        });
+                                    }
+                                    return '';
+                                },
+                                label: function(context) {
+                                    const value = context.parsed.y;
+                                    const unit = context.dataset.label.includes('CH7') ? 'V' : 'A';
+                                    return `${context.dataset.label}: ${value.toFixed(3)} ${unit}`;
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { 
+                                unit: timeUnit, 
+                                tooltipFormat: 'yyyy/MM/dd HH:mm:ss',
+                                displayFormats: { 
+                                    second: 'HH:mm:ss',
+                                    minute: 'HH:mm:ss',
+                                    hour: 'MM/dd HH:mm',
+                                    day: 'MM/dd'
+                                }
+                            },
+                            title: { 
+                                display: true, 
+                                text: '時間',
+                                font: { weight: 'bold' }
+                            },
+                            grid: { color: 'rgba(0,0,0,0.1)' },
+                            ticks: {
+                                maxTicksLimit: 10, // 限制標籤數量避免擁擠
+                                callback: function(value, index, values) {
+                                    const date = new Date(value);
+                                    if (timeUnit === 'second') {
+                                        return date.toLocaleTimeString('zh-TW', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            second: '2-digit' 
+                                        });
+                                    } else if (timeUnit === 'minute') {
+                                        return date.toLocaleTimeString('zh-TW', { 
+                                            hour: '2-digit', 
+                                            minute: '2-digit', 
+                                            second: '2-digit' 
+                                        });
+                                    } else {
+                                        return date.toLocaleString('zh-TW', { 
+                                            month: '2-digit', 
+                                            day: '2-digit', 
+                                            hour: '2-digit', 
+                                            minute: '2-digit' 
+                                        });
+                                    }
+                                }
+                            }
+                        },
+                        current: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { 
+                                display: true, 
+                                text: '電流 (A)',
+                                font: { weight: 'bold' },
+                                color: '#2563eb'
+                            },
+                            min: 0,
+                            max: 100,
+                            grid: { color: 'rgba(37,99,235,0.1)' },
+                            ticks: { 
+                                color: '#2563eb',
+                                stepSize: 10,
+                                callback: function(value) {
+                                    return Math.round(value) + 'A';
+                                }
+                            }
+                        },
+                        battery: {
+                            type: 'linear',
+                            position: 'right',
+                            title: { 
+                                display: true, 
+                                text: '電池電壓 (V)',
+                                font: { weight: 'bold' },
+                                color: '#10b981'
+                            },
+                            grid: { drawOnChartArea: false },
+                            min: 2.5,
+                            max: 4.2,
+                            ticks: { 
+                                color: '#10b981',
+                                stepSize: 0.5,
+                                callback: function(value) {
+                                    return value.toFixed(1) + 'V';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+            
+            console.log('✅ 圖表創建成功');
+            
+        } catch (e) {
+            console.error('❌ 創建圖表失敗:', e);
+            
+            // 嘗試創建簡化版本的圖表
+            try {
+                dashboardChart = new Chart(context2d, {
+                    type: 'line',
+                    data: { datasets: dataSets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: { legend: { position: 'bottom' } }
+                    }
+                });
+                console.log('⚡ 簡化圖表創建成功');
+            } catch (fallbackError) {
+                console.error('❌ 簡化圖表也創建失敗:', fallbackError);
+            }
+        }
+    }
+
+    // 缺失的函數定義
+    let autoRefreshEnabled = true;
+
+    function toggleAutoRefresh() {
+        autoRefreshEnabled = !autoRefreshEnabled;
+        const icon = document.getElementById('refreshIcon');
+        const button = icon.parentElement;
+        
+        if (autoRefreshEnabled) {
+            // 啟用自動刷新 - 使用 3 秒間隔確保快速更新
+            if (window.chartRefreshInterval) {
+                clearInterval(window.chartRefreshInterval);
+            }
+            window.chartRefreshInterval = setInterval(showUartChart, 3000);
+            icon.className = 'fas fa-pause';
+            button.classList.remove('btn-warning');
+            button.classList.add('btn-light');
+            console.log('✅ 自動刷新已啟用（3秒間隔）');
+        } else {
+            // 停用自動刷新
+            if (window.chartRefreshInterval) {
+                clearInterval(window.chartRefreshInterval);
+                window.chartRefreshInterval = null;
+            }
+            icon.className = 'fas fa-play';
+            button.classList.remove('btn-light');
+            button.classList.add('btn-warning');
+            console.log('⏸️  自動刷新已停用');
+        }
+    }
+
+    function refreshDashboard() {
+        console.log('手動刷新儀表板');
+        // 立即更新所有數據
+        showUartChart();
+        loadDashboardStats();
+        loadMacIds();
+        
+        // 視覺反饋
+        const button = event.target;
+        const originalIcon = button.innerHTML;
+        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>重新整理';
+        button.disabled = true;
+        
+        setTimeout(() => {
+            button.innerHTML = originalIcon;
+            button.disabled = false;
+        }, 2000);
+    }
+
+    function downloadChartImage() {
+        if (!dashboardChart) {
+            alert('目前沒有圖表可以下載');
+            return;
+        }
+        
+        try {
+            const link = document.createElement('a');
+            link.download = `UART_Chart_${new Date().toISOString().slice(0, 16).replace('T', '_')}.png`;
+            link.href = dashboardChart.toBase64Image();
+            link.click();
+            console.log('圖表已下載');
+        } catch (error) {
+            console.error('下載圖表失敗:', error);
+            alert('下載圖表失敗，請稍後再試');
+        }
+    }
+
+    let chartTimeOffset = 0; // 時間偏移（以30分鐘為單位）
+
+    function changeChartTime(direction) {
+        chartTimeOffset += direction;
+        
+        // 限制不能看未來的數據
+        if (chartTimeOffset > 0) {
+            chartTimeOffset = 0;
+        }
+        
+        // 更新時間範圍顯示
+        const timeRangeElement = document.getElementById('chartTimeRange');
+        if (timeRangeElement) {
+            if (chartTimeOffset === 0) {
+                timeRangeElement.textContent = '過去 30 分鐘 (即時)';
+            } else {
+                const hoursBack = Math.abs(chartTimeOffset) * 0.5;
+                timeRangeElement.textContent = `${hoursBack} 小時前的 30 分鐘`;
+            }
+        }
+        
+        // 重新載入圖表（這裡需要修改 showUartChart 來支援時間偏移）
+        showUartChart();
+    }
+
+    function showNetworkStatus() {
+        const statusContainer = document.getElementById('networkStatusContainer');
+        const statusText = document.getElementById('networkStatusText');
+        
+        if (!statusContainer || !statusText) return;
+        
+        statusText.textContent = '檢查中...';
+        statusText.className = 'text-muted';
+        
+        // 簡單的網路連線檢查
+        fetch('/api/health', { method: 'HEAD', timeout: 5000 })
+            .then(response => {
+                if (response.ok) {
+                    statusText.textContent = '網路連線正常';
+                    statusText.className = 'text-success';
+                } else {
+                    statusText.textContent = '網路連線異常';
+                    statusText.className = 'text-danger';
+                }
+            })
+            .catch(error => {
+                statusText.textContent = '無法連接到伺服器';
+                statusText.className = 'text-danger';
+            });
     }
     </script>
 </body>

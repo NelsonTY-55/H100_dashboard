@@ -657,7 +657,7 @@ def dashboard_chart_data():
     """API: 獲取圖表數據 - 按通道分組的時間序列數據，支援特定MAC ID過濾"""
     try:
         # 獲取查詢參數
-        limit = request.args.get('limit', 100000, type=int)  # 預設最近100000筆數據，如需更多可調整參數
+        limit = request.args.get('limit', 10000, type=int)  # 預設最近100000筆數據，如需更多可調整參數
         channel = request.args.get('channel', None, type=int)  # 特定通道，None表示所有通道
         mac_id = request.args.get('mac_id', None)  # 特定MAC ID，None表示所有設備
         
