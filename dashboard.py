@@ -693,13 +693,12 @@ def dashboard_device_settings():
 
 @app.route('/api/dashboard/chart-data')
 def dashboard_chart_data():
-    """API: 獲取圖表數據 - 按通道分組的時間序列數據，支援特定MAC ID過濾"""
+    """API: 獲取圖表數據 - 直接從CSV文件讀取最新數據，支援特定MAC ID過濾"""
     try:
         # 獲取查詢參數
-        limit = request.args.get('limit', 100000, type=int)  # 預設最近100000筆數據，如需更多可調整參數
+        limit = request.args.get('limit', 50000, type=int)  # 預設最近50000筆數據，提高響應速度
         channel = request.args.get('channel', None, type=int)  # 特定通道，None表示所有通道
         mac_id = request.args.get('mac_id', None)  # 特定MAC ID，None表示所有設備
-        
         
         # 記錄 API 請求 - 降低頻繁請求的日誌級別
         if limit <= 1000:  # 小量請求用DEBUG級別
@@ -707,111 +706,65 @@ def dashboard_chart_data():
         else:  # 大量請求用INFO級別
             logging.info(f"圖表數據請求 - limit={limit}, channel={channel}, mac_id={mac_id}, IP={request.remote_addr}")
         
-        # 從 uart_reader 獲取數據，如果不可用則從文件讀取
-        raw_data = safe_get_uart_data()
+        # 直接從CSV文件讀取最新數據，提高效率
+        logging.debug("📁 直接從CSV文件讀取圖表數據")
+        raw_data = []
         
-        # 如果 uart_reader 數據為空或過舊，嘗試從 CSV 文件讀取最新數據
-        if not raw_data:
-            logging.info("UART實時數據不可用，從CSV文件讀取數據")
-            try:
-                file_data = get_uart_data_from_files(mac_id, limit)
-                if file_data.get('success'):
-                    # 轉換文件格式到 raw_data 格式
-                    raw_data = []
-                    for channel_data in file_data.get('data', []):
-                        for data_point in channel_data.get('data', []):
-                            raw_data.append({
-                                'timestamp': data_point.get('timestamp'),
-                                'mac_id': channel_data.get('mac_id', 'N/A'),
-                                'channel': channel_data.get('channel', 0),
-                                'parameter': data_point.get('parameter'),
-                                'unit': channel_data.get('unit', 'N/A')
-                            })
-                    logging.info(f"✅ 從CSV文件讀取到 {len(raw_data)} 筆數據")
-                else:
-                    logging.warning(f"❌ 從CSV文件讀取數據失敗: {file_data.get('error', '未知錯誤')}")
-            except Exception as e:
-                logging.error(f"從CSV文件讀取數據時發生錯誤: {e}")
-        else:
-            logging.debug(f"📡 從UART實時數據獲取到 {len(raw_data)} 筆數據")
+        try:
+            file_data = get_uart_data_from_files(mac_id, limit)
+            if file_data.get('success'):
+                # 轉換文件格式到 raw_data 格式
+                for channel_data in file_data.get('data', []):
+                    for data_point in channel_data.get('data', []):
+                        raw_data.append({
+                            'timestamp': data_point.get('timestamp'),
+                            'mac_id': channel_data.get('mac_id', 'N/A'),
+                            'channel': channel_data.get('channel', 0),
+                            'parameter': data_point.get('parameter'),
+                            'unit': channel_data.get('unit', 'N/A')
+                        })
+                logging.debug(f"✅ 從CSV文件讀取到 {len(raw_data)} 筆數據")
+            else:
+                logging.warning(f"❌ 從CSV文件讀取數據失敗: {file_data.get('error', '未知錯誤')}")
+        except Exception as e:
+            logging.error(f"從CSV文件讀取數據時發生錯誤: {e}")
         
         # 記錄數據狀態
         total_data_count = len(raw_data)
-        logging.info(f"原始數據總數: {total_data_count}")
+        logging.debug(f"原始數據總數: {total_data_count}")
         
         # 如果沒有數據，直接返回
         if total_data_count == 0:
-            logging.info("沒有可用的UART數據")
+            logging.info("沒有可用的CSV數據文件")
             return jsonify({
                 'success': True,
                 'data': [],
                 'total_channels': 0,
                 'filtered_by_mac_id': mac_id,
+                'data_source': 'CSV文件',
                 'timestamp': datetime.now().isoformat()
             })
         
-        # 按通道分組數據
+        # 按通道分組數據 - 簡化時間窗口處理，提高性能
         chart_data = {}
         
-        # 動態時間窗口：優先顯示最近數據，確保30秒內的更新能被看到
+        # 優化：直接使用最新數據，取消複雜的時間窗口篩選以提高速度
         now = datetime.now()
-        time_windows = [
-            ("2分鐘", timedelta(minutes=2)),   # 最近2分鐘
-            ("10分鐘", timedelta(minutes=10)), # 最近10分鐘
-            ("30分鐘", timedelta(minutes=30)), # 最近30分鐘
-            ("2小時", timedelta(hours=2))      # 最近2小時
-        ]
         
-        # 先嘗試最小時間窗口，如果數據不足再擴大
-        selected_window = None
-        filtered_data = []
+        # 如果數據量很大，只取最近的數據以提高響應速度
+        if len(raw_data) > limit:
+            # 按時間戳排序並取最新的數據
+            try:
+                raw_data.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+                raw_data = raw_data[:limit]
+                logging.debug(f"📊 數據量過大，已限制為最近 {limit} 筆數據")
+            except Exception as sort_error:
+                logging.warning(f"數據排序失敗，使用原始順序: {sort_error}")
+                raw_data = raw_data[-limit:]  # 取最後的數據
         
-        for window_name, window_duration in time_windows:
-            time_limit = now - window_duration
-            temp_filtered = []
-            
-            for entry in raw_data[-limit:]:
-                entry_timestamp_str = entry.get('timestamp')
-                
-                # 解析時間戳
-                try:
-                    if entry_timestamp_str:
-                        entry_timestamp = None
-                        for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f']:
-                            try:
-                                entry_timestamp = datetime.strptime(entry_timestamp_str, fmt)
-                                break
-                            except ValueError:
-                                continue
-                        
-                        if entry_timestamp is None:
-                            try:
-                                entry_timestamp = datetime.fromisoformat(entry_timestamp_str.replace('Z', '+00:00'))
-                            except:
-                                entry_timestamp = now  # 使用當前時間作為備份
-                        
-                        # 檢查是否在時間窗口內
-                        if entry_timestamp >= time_limit:
-                            temp_filtered.append(entry)
-                    else:
-                        temp_filtered.append(entry)  # 無時間戳的數據也包含
-                        
-                except Exception as e:
-                    logging.warning(f"解析時間戳失敗: {entry_timestamp_str}, 錯誤: {e}")
-                    temp_filtered.append(entry)  # 解析失敗也包含數據
-            
-            # 如果找到足夠的數據點（至少10個），使用這個時間窗口
-            if len(temp_filtered) >= 10:
-                selected_window = window_name
-                filtered_data = temp_filtered
-                break
-        
-        # 如果所有時間窗口都沒有足夠數據，使用所有可用數據
-        if not filtered_data:
-            selected_window = "全部可用"
-            filtered_data = raw_data[-limit:] if limit else raw_data
-        
-        logging.info(f"📊 使用時間窗口: {selected_window}, 過濾後數據: {len(filtered_data)} 筆")
+        # 直接處理數據，不進行時間窗口篩選
+        filtered_data = raw_data
+        selected_window = f"最近{len(filtered_data)}筆"
         
         # 處理過濾後的數據
         for entry in filtered_data:
@@ -848,13 +801,14 @@ def dashboard_chart_data():
         
         # 記錄處理結果
         processed_data_count = sum(len(channel_data['data']) for channel_data in result_data)
-        logging.info(f"✅ 圖表數據處理完成 - 時間窗口: {selected_window}, 通道數: {len(result_data)}, 數據點總數: {processed_data_count}, 處理時間: {datetime.now().isoformat()}")
+        logging.debug(f"✅ 圖表數據處理完成 - 數據源: CSV文件, 通道數: {len(result_data)}, 數據點總數: {processed_data_count}")
         
         return jsonify({
             'success': True,
             'data': result_data,
             'total_channels': len(result_data),
             'filtered_by_mac_id': mac_id,
+            'data_source': 'CSV文件',
             'time_window': selected_window,
             'total_data_points': processed_data_count,
             'timestamp': datetime.now().isoformat()

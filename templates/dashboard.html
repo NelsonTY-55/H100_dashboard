@@ -178,6 +178,14 @@
             padding: 1rem;
         }
 
+        .chart-actions .btn {
+            min-width: 36px;
+            height: 30px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
         .chart-selector {
             background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
             border-radius: var(--border-radius);
@@ -526,12 +534,17 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center text-white active" href="/dashboard">
-                    <i class="fas fa-tachometer-alt me-2"></i> <span class="sidebar-link-text">儀表板</span>
+                    <i class="fas fa-tachometer-alt me-2"></i> <span class="sidebar-link-text">監控中心</span>
                 </a>
             </li>
             <li class="nav-item">
                 <a class="nav-link d-flex align-items-center text-white" href="/db-setting">
-                    <i class="fas fa-cog me-2"></i> <span class="sidebar-link-text">設定</span>
+                    <i class="fas fa-cog me-2"></i> <span class="sidebar-link-text">設備機台設定</span>
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/dashboard_overview">
+                    <i class="fas fa-cog me-2"></i> <span class="sidebar-link-text">儀錶板總覽</span>
                 </a>
             </li>
             <li class="nav-item">
@@ -978,11 +991,11 @@
             showUartChart();
             
             // 設置自動刷新（使用全域變數管理）
-            console.log('📡 設置優化的自動刷新機制：每3秒更新圖表（確保30秒內顯示新數據）');
+            console.log('📡 設置優化的自動刷新機制：每2秒更新圖表（CSV讀取更高效）');
             window.chartRefreshInterval = setInterval(() => {
                 console.log('🔄 自動刷新圖表...');
                 showUartChart();
-            }, 3000); // 從 5000ms 改為 3000ms 確保更快響應
+            }, 2000); // 從 3000ms 優化為 2000ms，配合CSV文件直接讀取的高效率
             
             // MAC選擇器變動時的處理
             const macSelector = document.getElementById('macSelector');
@@ -1014,7 +1027,7 @@
                             window.chartRefreshInterval = setInterval(() => {
                                 console.log('🔄 自動刷新圖表...');
                                 showUartChart();
-                            }, 3000); // 保持 3000ms 間隔
+                            }, 2000); // 保持 2000ms 間隔，配合CSV優化
                         }
                     }, 1000);
                 });
@@ -1085,7 +1098,7 @@
                                 <span class="badge bg-info" id="macStatus">載入中...</span>
                             </div>
                         </div>
-                        
+
                         <!-- Chart Container -->
                         <div class="chart-container">
                             <canvas id="dashboardChart"></canvas>
@@ -1176,7 +1189,8 @@
             
             const result = await res.json();
             console.log('📊 API 回應狀態:', result.success ? '成功' : '失敗');
-            console.log('📈 原始數據:', result);
+            console.log('📈 數據來源:', result.data_source || '未知');
+            console.log('📈 時間窗口:', result.time_window || '未知');
             
             if (!result.success || !Array.isArray(result.data)) {
                 console.warn('⚠️  API 回應無效或無資料');
@@ -1184,28 +1198,22 @@
                 return;
             }
             
-            // 動態時間窗口 - 根據數據量調整
-            const now = new Date();
-            let timeLimit;
-            const totalDataPoints = result.data.reduce((sum, ch) => sum + (ch.data ? ch.data.length : 0), 0);
+            // 使用後端已處理的數據，並額外過濾最近 30 分鐘
+            console.log('📊 使用後端處理的數據 - 來源:', result.data_source, '| 窗口:', result.time_window);
+            console.log('⏰ 前端額外過濾：顯示最近 30 分鐘數據');
             
-            if (totalDataPoints > 1000) {
-                // 數據多時顯示最近30分鐘
-                timeLimit = new Date(now.getTime() - 30 * 60 * 1000);
-                console.log('⏰ 使用30分鐘時間窗口 (數據量:', totalDataPoints, ')');
-            } else {
-                // 數據少時顯示最近2小時
-                timeLimit = new Date(now.getTime() - 120 * 60 * 1000);
-                console.log('⏰ 使用2小時時間窗口 (數據量:', totalDataPoints, ')');
-            }
+            // 計算 30 分鐘前的時間點
+            const now = new Date();
+            const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
             
             const datasets = result.data.map(chan => {
                 if (!chan.data || !Array.isArray(chan.data)) {
                     console.warn(`⚠️  通道 ${chan.channel} 無數據`);
-                    return { channel: chan.channel, data: [] };
+                    return { channel: chan.channel, data: [], unit: chan.unit };
                 }
                 
-                let pts = chan.data.map(e => {
+                // 轉換數據格式並過濾最近 30 分鐘
+                const allPts = chan.data.map(e => {
                     const timestamp = new Date(e.timestamp);
                     return {
                         x: timestamp, 
@@ -1214,46 +1222,21 @@
                     };
                 }).filter(pt => !isNaN(pt.x.getTime())); // 過濾無效時間戳
                 
-                // 按時間排序（最新的在後）
-                pts.sort((a, b) => a.x - b.x);
+                // 只保留最近 30 分鐘的數據
+                const recentPts = allPts.filter(pt => pt.x >= thirtyMinutesAgo);
                 
-                // 過濾時間範圍
-                const recentPts = pts.filter(pt => pt.x >= timeLimit);
+                // 如果最近 30 分鐘沒有數據，取最新的 50 筆作為備用
+                const finalPts = recentPts.length > 0 ? recentPts : allPts.slice(-50);
                 
-                if (recentPts.length === 0 && pts.length > 0) {
-                    // 如果時間範圍內無數據，取最新的100筆
-                    pts = pts.slice(-100);
-                    console.log(`📈 通道 ${chan.channel}: 時間範圍外，顯示最新 ${pts.length} 筆資料`);
-                } else {
-                    pts = recentPts;
-                    console.log(`📈 通道 ${chan.channel}: 時間範圍內 ${pts.length} 筆資料`);
-                }
+                console.log(`📈 通道 ${chan.channel}: 原始${allPts.length}筆 -> 30分鐘內${recentPts.length}筆 -> 最終${finalPts.length}筆`);
                 
-                return { channel: chan.channel, data: pts, unit: chan.unit };
+                return { channel: chan.channel, data: finalPts, unit: chan.unit };
             });
             
             console.log('✅ 處理後的資料集:', datasets.map(ds => `CH${ds.channel}:${ds.data.length}筆`).join(', '));
             
             // 渲染圖表
             renderDualAxisChart(datasets);
-            
-            // 更新時間範圍顯示
-            const totalPoints = datasets.reduce((sum, ds) => sum + ds.data.length, 0);
-            const timeRangeElement = document.getElementById('chartTimeRange');
-            if (timeRangeElement) {
-                const macInfo = mac ? ` (${mac})` : '';
-                const timeWindow = totalDataPoints > 1000 ? '30分鐘' : '2小時';
-                const now = new Date();
-                timeRangeElement.textContent = `過去 ${timeWindow}${macInfo} - ${totalPoints} 筆資料`;
-                timeRangeElement.title = `最後更新: ${now.toLocaleString('zh-TW', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                })}`;
-            }
             
             // 更新頁面標題指示最後更新時間
             const originalTitle = document.title;
@@ -1278,8 +1261,9 @@
             // 更新狀態顯示
             const timeRangeElement = document.getElementById('chartTimeRange');
             if (timeRangeElement) {
-                timeRangeElement.textContent = '數據載入失敗';
+                timeRangeElement.textContent = '數據載入失敗 - 請檢查網路連接或稍後重試 (最近 30 分鐘)';
                 timeRangeElement.className = 'text-danger';
+                timeRangeElement.title = `錯誤詳情: ${e.message}`;
             }
         }
     }
@@ -1364,30 +1348,8 @@
         
         console.log('🎨 建立新圖表，資料集數量:', dataSets.length);
         
-        // 計算時間範圍來決定最佳的時間單位
-        let timeUnit = 'minute';
-        let timeDisplayFormat = 'HH:mm:ss';
-        
-        if (channelDatasets.length > 0) {
-            const allDataPoints = channelDatasets.flatMap(ch => ch.data || []);
-            if (allDataPoints.length > 1) {
-                const timestamps = allDataPoints.map(pt => pt.x.getTime()).sort((a, b) => a - b);
-                const timeSpan = timestamps[timestamps.length - 1] - timestamps[0]; // 毫秒
-                
-                if (timeSpan < 5 * 60 * 1000) { // 少於5分鐘
-                    timeUnit = 'second';
-                    timeDisplayFormat = 'HH:mm:ss';
-                } else if (timeSpan < 2 * 60 * 60 * 1000) { // 少於2小時
-                    timeUnit = 'minute';
-                    timeDisplayFormat = 'HH:mm:ss';
-                } else { // 超過2小時
-                    timeUnit = 'hour';
-                    timeDisplayFormat = 'MM/dd HH:mm';
-                }
-                
-                console.log(`⏰ 時間範圍: ${(timeSpan / 1000 / 60).toFixed(1)}分鐘，使用時間單位: ${timeUnit}`);
-            }
-        }
+        // 固定使用分鐘單位，適合 30 分鐘時間範圍
+        console.log('⏰ 使用固定時間單位: minute (適合 30 分鐘範圍)');
         
         try {
             dashboardChart = new Chart(context2d, {
@@ -1446,46 +1408,38 @@
                     scales: {
                         x: {
                             type: 'time',
+                            // 固定顯示最近 30 分鐘的時間範圍
+                            min: function(context) {
+                                const now = new Date();
+                                return new Date(now.getTime() - 30 * 60 * 1000); // 30 分鐘前
+                            },
+                            max: function(context) {
+                                return new Date(); // 現在時間
+                            },
                             time: { 
-                                unit: timeUnit, 
+                                unit: 'minute', // 固定使用分鐘單位，適合 30 分鐘範圍
                                 tooltipFormat: 'yyyy/MM/dd HH:mm:ss',
                                 displayFormats: { 
                                     second: 'HH:mm:ss',
-                                    minute: 'HH:mm:ss',
-                                    hour: 'MM/dd HH:mm',
+                                    minute: 'HH:mm',
+                                    hour: 'HH:mm',
                                     day: 'MM/dd'
                                 }
                             },
                             title: { 
                                 display: true, 
-                                text: '時間',
+                                text: '時間 (最近 30 分鐘)',
                                 font: { weight: 'bold' }
                             },
                             grid: { color: 'rgba(0,0,0,0.1)' },
                             ticks: {
-                                maxTicksLimit: 10, // 限制標籤數量避免擁擠
+                                maxTicksLimit: 8, // 減少標籤數量，適合 30 分鐘範圍
                                 callback: function(value, index, values) {
                                     const date = new Date(value);
-                                    if (timeUnit === 'second') {
-                                        return date.toLocaleTimeString('zh-TW', { 
-                                            hour: '2-digit', 
-                                            minute: '2-digit', 
-                                            second: '2-digit' 
-                                        });
-                                    } else if (timeUnit === 'minute') {
-                                        return date.toLocaleTimeString('zh-TW', { 
-                                            hour: '2-digit', 
-                                            minute: '2-digit', 
-                                            second: '2-digit' 
-                                        });
-                                    } else {
-                                        return date.toLocaleString('zh-TW', { 
-                                            month: '2-digit', 
-                                            day: '2-digit', 
-                                            hour: '2-digit', 
-                                            minute: '2-digit' 
-                                        });
-                                    }
+                                    return date.toLocaleTimeString('zh-TW', { 
+                                        hour: '2-digit', 
+                                        minute: '2-digit'
+                                    });
                                 }
                             }
                         },
@@ -1569,11 +1523,11 @@
             if (window.chartRefreshInterval) {
                 clearInterval(window.chartRefreshInterval);
             }
-            window.chartRefreshInterval = setInterval(showUartChart, 3000);
+            window.chartRefreshInterval = setInterval(showUartChart, 2000);
             icon.className = 'fas fa-pause';
             button.classList.remove('btn-warning');
             button.classList.add('btn-light');
-            console.log('✅ 自動刷新已啟用（3秒間隔）');
+            console.log('✅ 自動刷新已啟用（2秒間隔，配合CSV優化）');
         } else {
             // 停用自動刷新
             if (window.chartRefreshInterval) {
@@ -1606,23 +1560,7 @@
         }, 2000);
     }
 
-    function downloadChartImage() {
-        if (!dashboardChart) {
-            alert('目前沒有圖表可以下載');
-            return;
-        }
-        
-        try {
-            const link = document.createElement('a');
-            link.download = `UART_Chart_${new Date().toISOString().slice(0, 16).replace('T', '_')}.png`;
-            link.href = dashboardChart.toBase64Image();
-            link.click();
-            console.log('圖表已下載');
-        } catch (error) {
-            console.error('下載圖表失敗:', error);
-            alert('下載圖表失敗，請稍後再試');
-        }
-    }
+    // 移除圖表下載功能，用戶不需要此功能
 
     let chartTimeOffset = 0; // 時間偏移（以30分鐘為單位）
 
