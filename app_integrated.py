@@ -2253,6 +2253,16 @@ if __name__ == '__main__':
         print("支援的協定:", config_manager.get_supported_protocols())
         print("訪問 http://localhost:5000 開始使用")
         
+        # 重置通訊協定設定為預設值，等待使用者設定
+        default_cfg = config_manager._get_default_config()
+        # 僅重置 protocols 區塊
+        config_manager.config['protocols'] = default_cfg.get('protocols', {})
+        # 移除已設定或啟用協定標記
+        config_manager.config.pop('active_protocol', None)
+        # 儲存更新後的配置
+        config_manager.save_config()
+        print("已重置通訊協定設定為預設值，請重新設定通訊協定並啟用。")
+        
         # 啟動 Flask 應用程式
         app.run(debug=True, host='0.0.0.0', port=5000)
         
