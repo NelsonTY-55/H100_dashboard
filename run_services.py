@@ -2,12 +2,13 @@
 主程式 - 同時執行 app_integrated.py 和 dashboard.py
 """
 
+import os
+import signal
 import subprocess
 import sys
-import os
-import time
-import signal
 import threading
+import time
+
 from datetime import datetime
 
 class ServiceManager:
@@ -34,9 +35,8 @@ class ServiceManager:
                 env=env,
                 text=True,
                 bufsize=1,
-                universal_newlines=True,
                 encoding='utf-8',
-                errors='replace'  # 遇到編碼錯誤時替換為佔位符而不是崩潰
+                errors='replace',  # 遇到編碼錯誤時替換為佔位符而不是崩潰
             )
             
             self.processes[name] = {
