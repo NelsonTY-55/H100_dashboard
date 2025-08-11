@@ -205,19 +205,37 @@ def raspberry_pi_config():
 def test_raspberry_pi_connection():
     """測試樹莓派連接"""
     try:
-        success, result = call_raspberry_pi_api('/api/health', timeout=5)
-        if success:
-            return {
-                'connected': True,
-                'message': '連接正常',
-                'response_time': '< 5秒'
-            }
-        else:
-            return {
-                'connected': False,
-                'message': result.get('error', '連接失敗'),
-                'response_time': 'N/A'
-            }
+        # 嘗試多個端點來測試連接
+        test_endpoints = ['/api/health', '/api/status', '/api/data', '/']
+        
+        for endpoint in test_endpoints:
+            success, result = call_raspberry_pi_api(endpoint, timeout=5)
+            if success:
+                return {
+                    'connected': True,
+                    'message': f'連接正常 (通過 {endpoint} 端點)',
+                    'response_time': '< 5秒'
+                }
+        
+        # 如果所有API端點都失敗，嘗試簡單的HTTP連接測試
+        try:
+            import urllib.request
+            url = get_raspberry_pi_url()
+            response = urllib.request.urlopen(url, timeout=5)
+            if response.getcode() in [200, 404, 500]:  # 任何HTTP回應都表示連接成功
+                return {
+                    'connected': True,
+                    'message': '連接正常 (HTTP連接成功)',
+                    'response_time': '< 5秒'
+                }
+        except Exception:
+            pass
+            
+        return {
+            'connected': False,
+            'message': '無法連接到樹莓派，請檢查IP地址和網路連線',
+            'response_time': 'N/A'
+        }
     except Exception as e:
         return {
             'connected': False,

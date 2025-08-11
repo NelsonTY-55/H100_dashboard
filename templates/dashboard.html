@@ -760,354 +760,102 @@
         </div>
     </div>
 
-    <!-- Main Content -->
-    <div class="container mb-5">
-        <!-- Stats Overview -->
-        <div class="stats-overview animate__animated animate__fadeInUp">
-            <div class="row g-4">
-                <!-- CPU 儀表板卡片 -->
-                <div class="col-xl-4 col-lg-6 col-md-6">
-                    <div class="stat-card gauge-card animate__animated animate__zoomIn">
-                        <div class="gauge-container">
-                            <canvas id="cpuGauge" width="120" height="120"></canvas>
-                            <div class="gauge-value" id="cpuUsageGauge">0%</div>
-                        </div>
-                        <div class="stat-label">CPU 使用率</div>
-                        <div class="stat-trend trend-stable" id="cpuTrend">
-                            <i class="fas fa-minus"></i> 穩定
-                        </div>
-                    </div>
-                </div>
-                <!-- 資料筆數卡片（預留分地區） -->
-                <div class="col-xl-4 col-lg-6 col-md-6">
-                    <div class="stat-card warning animate__animated animate__zoomIn" style="animation-delay: 0.2s;">
-                        <div class="stat-icon warning">
-                            <i class="fas fa-database"></i>
-                        </div>
-                        <div class="stat-value" id="dataCount">0</div>
-                        <div class="stat-label">資料筆數 <span class="badge bg-secondary ms-1">(未來可分地區)</span></div>
-                        <div class="stat-trend trend-up" id="dataTrend">
-                            <i class="fas fa-arrow-up"></i> 增加
-                        </div>
-                    </div>
-                </div>
-                <!-- 地區設備數量卡片 -->
-                <div class="col-xl-4 col-lg-12 col-md-12">
-                    <div class="stat-card info animate__animated animate__zoomIn" style="animation-delay: 0.3s; min-height: 140px; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                        <div class="stat-icon info mb-2">
-                            <i class="fas fa-map-marker-alt"></i>
-                        </div>
-                        <div class="stat-label mb-1">各地區設備數量</div>
-                        <div id="regionDeviceCounts" style="width: 100%;">
-                            <div class="text-muted text-center">開發中...</div>
-                        </div>
-                    </div>
-                </div>
-        <!-- /* #regionDeviceCounts {
-            font-size: 1.05rem;
-        }
-        #regionDeviceCounts .region-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 2px 8px;
-        }
-        #regionDeviceCounts .region-label {
-            color: #2563eb;
-            font-weight: 500;
-        }
-        #regionDeviceCounts .region-count {
-            font-weight: bold;
-        } */
-        /*
-        // 地區設備數量載入
-        async function loadRegionDeviceCounts() {
-            const container = document.getElementById('regionDeviceCounts');
-            try {
-                const res = await fetch('/api/dashboard/devices');
-                const data = await res.json();
-                if (!data.success || !Array.isArray(data.devices)) {
-                    container.innerHTML = '<div class="text-danger">載入失敗</div>';
-                    return;
-                }
-                // 統計地區數量（根據 device_location）
-                const regionMap = {};
-                data.devices.forEach(dev => {
-                    const loc = (dev.device_location || '未設定').trim();
-                    if (!regionMap[loc]) regionMap[loc] = 0;
-                    regionMap[loc]++;
-                });
-                // 排序顯示
-                const regionRows = Object.entries(regionMap).sort((a,b)=>b[1]-a[1]).map(([region, count]) =>
-                    `<div class=\"region-row\"><span class=\"region-label\">${region}</span><span class=\"region-count\">${count}</span></div>`
-                ).join('');
-                container.innerHTML = regionRows || '<div class="text-muted">無設備資料</div>';
-            } catch (e) {
-                container.innerHTML = '<div class="text-danger">載入失敗</div>';
-            }
-        }
-        */ -->
-        
-        </div>
-        <style>
-        /* CPU 儀表板樣式 */
-        .gauge-container {
-            position: relative;
-            width: 120px;
-            height: 120px;
-            margin: 0 auto 10px auto;
-        }
-        #cpuGauge {
-            display: block;
-            width: 120px;
-            height: 120px;
-        }
-        .gauge-value {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #2563eb;
-            text-shadow: 0 1px 2px #fff, 0 0 2px #2563eb33;
-        }
-        .gauge-card {
-            min-height: 170px;
-        }
-        </style>
-        <script>
-        // 畫 CPU 儀表板
-        function drawCpuGauge(percent) {
-            const canvas = document.getElementById('cpuGauge');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            const w = canvas.width, h = canvas.height;
-            ctx.clearRect(0, 0, w, h);
-            // 背景弧
-            ctx.beginPath();
-            ctx.arc(w/2, h/2, 50, Math.PI*0.75, Math.PI*0.25, false);
-            ctx.lineWidth = 16;
-            ctx.strokeStyle = '#e5e7eb';
-            ctx.stroke();
-            // 前景弧
-            ctx.beginPath();
-            ctx.arc(w/2, h/2, 50, Math.PI*0.75, Math.PI*0.75 + (Math.PI*1.5)*(percent/100), false);
-            ctx.lineWidth = 16;
-            ctx.strokeStyle = percent < 70 ? '#22c55e' : (percent < 90 ? '#facc15' : '#ef4444');
-            ctx.shadowColor = ctx.strokeStyle;
-            ctx.shadowBlur = 6;
-            ctx.stroke();
-            ctx.shadowBlur = 0;
-        }
-        // 載入並更新儀表板數值
-        async function loadDashboardStats() {
-            try {
-            // 取得系統統計（CPU）
-            const statRes = await fetch('/api/dashboard/stats');
-            const statData = await statRes.json();
-            if (!statData.success) return;
-            // CPU 使用率
-            const cpuPercent = Math.round(statData.system.cpu_percent || 0);
-            document.getElementById('cpuUsageGauge').textContent = cpuPercent + '%';
-            drawCpuGauge(cpuPercent);
-            // 資料筆數：依據 MAC 選擇過濾
-            let count = statData.application.uart_data_count || 0;
-            const mac = document.getElementById('macSelector').value;
-            if (mac) {
-                const chartRes = await fetch(`/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}`);
-                const chartData = await chartRes.json();
-                if (chartData.success && Array.isArray(chartData.data)) {
-                    count = chartData.data.reduce((sum, ch) => sum + ch.data.length, 0);
-                }
-            }
-            document.getElementById('dataCount').textContent = count;
-            // 狀態趨勢
-            document.getElementById('cpuTrend').innerHTML = '<i class="fas fa-minus"></i> 穩定';
-            document.getElementById('dataTrend').innerHTML = '<i class="fas fa-arrow-up"></i> 增加';
-            } catch (e) {
-                document.getElementById('cpuUsageGauge').textContent = '0%';
-                drawCpuGauge(0);
-                document.getElementById('dataCount').textContent = '0';
-            }
-        }
-        // 更新頁首時間顯示
-        function updateCurrentTime() {
-            const now = new Date();
-            document.getElementById('current-time').textContent = now.toLocaleString('zh-TW', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        }
-
-        // 載入 MAC ID 選單
-        async function loadMacIds() {
-            const statusSpan = document.getElementById('macStatus');
-            try {
-                const sel = document.getElementById('macSelector');
-                sel.innerHTML = ''; // 清空現有選項
-                
-                // 加入預設選項
-                const defaultOpt = document.createElement('option');
-                defaultOpt.value = '';
-                defaultOpt.textContent = '所有設備';
-                sel.appendChild(defaultOpt);
-                
-                const res = await fetch('/api/uart/mac-ids');
-                const data = await res.json();
-                if (data.success && Array.isArray(data.mac_ids)) {
-                    data.mac_ids.forEach(id => {
-                        const opt = document.createElement('option');
-                        opt.value = id;
-                        opt.textContent = id;
-                        sel.appendChild(opt);
-                    });
-                    console.log('載入了', data.mac_ids.length, '個 MAC ID');
-                    
-                    // 更新狀態顯示
-                    if (statusSpan) {
-                        statusSpan.textContent = `${data.mac_ids.length} 個設備`;
-                        statusSpan.className = 'badge bg-success';
-                    }
-                } else {
-                    if (statusSpan) {
-                        statusSpan.textContent = '無設備';
-                        statusSpan.className = 'badge bg-warning';
-                    }
-                }
-            } catch (e) {
-                console.error('載入 MAC ID 失敗', e);
-                const statusSpan = document.getElementById('macStatus');
-                if (statusSpan) {
-                    statusSpan.textContent = '載入失敗';
-                    statusSpan.className = 'badge bg-danger';
-                }
-            }
-        }
-        document.addEventListener('DOMContentLoaded', function() {
-            console.log('頁面載入完成，初始化儀表板...');
-            
-            // 載入基礎數據
-            loadMacIds();
-            loadDashboardStats();
-            
-            // 初次載入圖表
-            showUartChart();
-            
-            // 設置自動刷新（使用全域變數管理）
-            console.log('📡 設置優化的自動刷新機制：每2秒更新圖表（CSV讀取更高效）');
-            window.chartRefreshInterval = setInterval(() => {
-                console.log('🔄 自動刷新圖表...');
-                showUartChart();
-            }, 2000); // 從 3000ms 優化為 2000ms，配合CSV文件直接讀取的高效率
-            
-            // MAC選擇器變動時的處理
-            const macSelector = document.getElementById('macSelector');
-            if (macSelector) {
-                macSelector.addEventListener('change', (event) => {
-                    console.log('MAC ID 選擇已變更為:', event.target.value);
-                    
-                    // 暫停自動刷新避免衝突
-                    if (window.chartRefreshInterval) {
-                        clearInterval(window.chartRefreshInterval);
-                    }
-                    
-                    // 立即更新圖表和統計
-                    showUartChart();
-                    loadDashboardStats();
-                    
-                    // 視覺回饋
-                    const chartContainer = document.querySelector('.chart-container');
-                    if (chartContainer) {
-                        chartContainer.style.opacity = '0.7';
-                        setTimeout(() => {
-                            chartContainer.style.opacity = '1';
-                        }, 800);
-                    }
-                    
-                    // 重新啟動自動刷新
-                    setTimeout(() => {
-                        if (autoRefreshEnabled) {
-                            window.chartRefreshInterval = setInterval(() => {
-                                console.log('🔄 自動刷新圖表...');
-                                showUartChart();
-                            }, 2000); // 保持 2000ms 間隔，配合CSV優化
-                        }
-                    }, 1000);
-                });
-            }
-            
-            // 定期更新統計數據（獨立於圖表更新）
-            setInterval(() => {
-                console.log('📊 自動更新統計數據...');
-                loadDashboardStats();
-            }, 12000); // 每12秒更新統計，避免與圖表更新衝突
-            
-            // 初始化其他組件
-            drawCpuGauge(0);
-            
-            // 定期更新時間顯示
-            updateCurrentTime();
-            setInterval(updateCurrentTime, 1000);
-            
-            // 時間點擊事件
-            const timeElement = document.getElementById('current-time');
-            if (timeElement) {
-                timeElement.addEventListener('click', updateCurrentTime);
-                timeElement.style.cursor = 'pointer';
-                timeElement.title = '點擊立即更新時間';
-            }
-            
-            console.log('儀表板初始化完成');
-        });
-        </script>
-
-        <!-- Main Dashboard Content -->
-        <div class="row g-4">
-            <!-- Chart Section -->
-            <div class="col-xl-8 col-lg-7">
-                <div class="main-content-card animate__animated animate__fadeInLeft">
-                    <div class="card-header d-flex justify-content-between align-items-center">
+    <!-- 設備選擇與圖表生成功能 -->
+    <div class="container mt-4">
+        <div class="row">
+            <div class="col-12">
+                <div class="card main-content-card">
+                    <div class="card-header">
                         <h5 class="mb-0">
                             <i class="fas fa-chart-line me-2"></i>
-                            即時資料監控
+                            多設備電流圖表生成器
                         </h5>
-                        <div class="d-flex align-items-center">
-                            <small class="text-light me-3">
-                                <i class="fas fa-circle pulse me-1"></i>
-                                即時更新
-                            </small>
-                            <button class="btn btn-sm btn-light" onclick="toggleAutoRefresh()">
-                                <i class="fas fa-pause" id="refreshIcon"></i>
-                            </button>
-                        </div>
                     </div>
                     <div class="card-body">
-                        <!-- Chart Selector -->
-                        <div class="chart-selector">
-                            <div class="d-flex flex-wrap justify-content-center">
-                                <button class="btn-chart active" onclick="switchChart('realtime')">
-                                    <i class="fas fa-chart-line me-1"></i>
-                                    即時數據
-                                </button>
-                                <button class="btn-chart" onclick="switchChart('network')">
-                                    <i class="fas fa-network-wired me-1"></i>
-                                    網路狀態
-                                </button>
+                        <!-- 選擇區域 -->
+                        <div class="row mb-4">
+                            <!-- 廠區選擇 -->
+                            <div class="col-lg-3 col-md-6 mb-3">
+                                <label class="form-label fw-bold">廠區選擇</label>
+                                <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="selectAllAreas" onchange="toggleAllAreas()">
+                                        <label class="form-check-label fw-bold" for="selectAllAreas">全選廠區</label>
+                                    </div>
+                                    <hr class="my-1">
+                                    <div id="areaList">
+                                        <!-- 廠區清單將透過 JS 動態載入 -->
+                                    </div>
+                                </div>
                             </div>
-                            <div class="mt-2 d-flex justify-content-center align-items-center">
-                                <label for="macSelector" class="form-label me-2 mb-0 text-muted small">設備選擇:</label>
-                                <select id="macSelector" class="form-select form-select-sm w-auto me-2">
-                                </select>
-                                <span class="badge bg-info" id="macStatus">載入中...</span>
+
+                            <!-- 設備位置選擇 -->
+                            <div class="col-lg-3 col-md-6 mb-3">
+                                <label class="form-label fw-bold">設備位置</label>
+                                <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="selectAllLocations" onchange="toggleAllLocations()">
+                                        <label class="form-check-label fw-bold" for="selectAllLocations">全選位置</label>
+                                    </div>
+                                    <hr class="my-1">
+                                    <div id="locationList">
+                                        <!-- 位置清單將透過 JS 動態載入 -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- MAC ID 選擇 -->
+                            <div class="col-lg-3 col-md-6 mb-3">
+                                <label class="form-label fw-bold">MAC ID</label>
+                                <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="selectAllMacs" onchange="toggleAllMacs()">
+                                        <label class="form-check-label fw-bold" for="selectAllMacs">全選 MAC</label>
+                                    </div>
+                                    <hr class="my-1">
+                                    <div id="macList">
+                                        <!-- MAC ID 清單將透過 JS 動態載入 -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- 設備型號選擇 -->
+                            <div class="col-lg-3 col-md-6 mb-3">
+                                <label class="form-label fw-bold">設備型號</label>
+                                <div class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                                    <div class="form-check">
+                                        <input class="form-check-input" type="checkbox" id="selectAllModels" onchange="toggleAllModels()">
+                                        <label class="form-check-label fw-bold" for="selectAllModels">全選型號</label>
+                                    </div>
+                                    <hr class="my-1">
+                                    <div id="modelList">
+                                        <!-- 設備型號清單將透過 JS 動態載入 -->
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- Chart Container -->
-                        <div class="chart-container">
-                            <canvas id="dashboardChart"></canvas>
-                            <!-- 網路狀態顯示區 -->
-                            <div id="networkStatusContainer" style="display:none; text-align:center; padding:40px 0;">
-                                <i class="fas fa-network-wired fa-3x mb-3 text-primary"></i>
-                                <h4 id="networkStatusText">檢查中...</h4>
-                                <p class="text-muted">正在檢查外部網路連線狀態</p>
+                        <!-- 操作按鈕 -->
+                        <div class="d-flex justify-content-between align-items-center mb-3">
+                            <div>
+                                <button class="btn btn-outline-secondary me-2" onclick="refreshDeviceData()">
+                                    <i class="fas fa-sync-alt me-1"></i>重新載入設備資料
+                                </button>
+                                <button class="btn btn-outline-warning me-2" onclick="clearAllSelections()">
+                                    <i class="fas fa-times me-1"></i>清除所有選擇
+                                </button>
                             </div>
+                            <div>
+                                <span class="text-muted me-3">已選擇: <span id="selectedCount">0</span> 個設備</span>
+                                <button class="btn btn-primary btn-lg" onclick="generateCharts()" id="generateBtn" disabled>
+                                    <i class="fas fa-chart-area me-2"></i>產生電流圖表
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 圖表顯示區域 -->
+                        <div id="chartsContainer" class="mt-4">
+                            <!-- 圖表將在這裡動態生成 -->
                         </div>
                     </div>
                 </div>
@@ -1115,503 +863,359 @@
         </div>
     </div>
 
-    <!-- Chart.js 載入 -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
-<script>
-    let dashboardChart = null;
-    let chartMode = 'realtime';
-    let chartAutoRefresh = null;
+    <script>
+        // 設備資料
+        let deviceData = [];
+        let selectedDevices = new Set();
 
-    // 載入 MAC ID 選單
-    async function loadMacIds() {
-        try {
-            const res = await fetch('/api/uart/mac-ids');
-            const data = await res.json();
-            if (data.success && Array.isArray(data.mac_ids)) {
-                const sel = document.getElementById('macSelector');
-                data.mac_ids.forEach(id => {
-                    const opt = document.createElement('option'); opt.value = id; opt.textContent = id;
-                    sel.appendChild(opt);
-                });
+        // 頁面載入時初始化
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshDeviceData();
+        });
+
+        // 重新載入設備資料
+        async function refreshDeviceData() {
+            try {
+                // 顯示載入狀態
+                showLoading('正在載入設備資料...');
+
+                // 同時從多個 API 獲取資料
+                const [macResponse, deviceResponse] = await Promise.all([
+                    fetch('/api/uart/mac-ids'),
+                    fetch('/api/dashboard/devices').catch(() => null)
+                ]);
+
+                let devices = [];
+
+                // 處理 MAC ID 資料
+                if (macResponse.ok) {
+                    const macData = await macResponse.json();
+                    if (macData.success && macData.data) {
+                        devices = macData.data.map(item => ({
+                            area: item.area || '未分類廠區',
+                            location: item.location || '未知位置',
+                            mac_id: item.mac_id,
+                            model: item.device_type || '未知型號',
+                            current: item.current || 0,
+                            channels: item.channels || []
+                        }));
+                    }
+                }
+
+                // 處理設備列表資料（如果可用）
+                if (deviceResponse && deviceResponse.ok) {
+                    const deviceListData = await deviceResponse.json();
+                    // 合併或補充設備資料
+                    if (deviceListData.devices) {
+                        // 這裡可以合併額外的設備資訊
+                    }
+                }
+
+                deviceData = devices;
+                updateSelectionLists();
+                hideLoading();
+
+            } catch (error) {
+                console.error('載入設備資料失敗:', error);
+                hideLoading();
+                alert('載入設備資料失敗，請稍後再試');
             }
-        } catch (e) {
-            console.error('載入 MAC ID 失敗', e);
         }
-    }
-    // 切換圖表
-    function switchChart(mode) {
-        chartMode = mode;
-        document.querySelectorAll('.btn-chart').forEach(btn => btn.classList.remove('active'));
-        if (mode === 'realtime') {
-            document.querySelector('.btn-chart[onclick*="realtime"]').classList.add('active');
-            document.getElementById('dashboardChart').style.display = '';
-            document.getElementById('networkStatusContainer').style.display = 'none';
-            showUartChart();
-        } else if (mode === 'network') {
-            document.querySelector('.btn-chart[onclick*="network"]').classList.add('active');
-            document.getElementById('dashboardChart').style.display = 'none';
-            document.getElementById('networkStatusContainer').style.display = '';
-            showNetworkStatus();
-        }
-    }
 
-    // 顯示 UART 即時數據圖表（支援 MAC 選擇）
-    async function showUartChart() {
-        const startTime = Date.now();
-        console.log('🔄 showUartChart 開始執行...');
-        
-        try {
-            const mac = document.getElementById('macSelector').value;
-            console.log('📍 選擇的 MAC ID:', mac || '所有設備');
-            
-            // 構建API端點 - 增加更多參數確保獲取最新數據
-            const endpoint = mac 
-                ? `/api/dashboard/chart-data?mac_id=${encodeURIComponent(mac)}&limit=50000` 
-                : '/api/dashboard/chart-data?limit=50000';
-            
-            console.log('🌐 API 端點:', endpoint);
-            
-            // 添加時間戳避免緩存
-            const timestampedEndpoint = `${endpoint}&_t=${Date.now()}`;
-            const res = await fetch(timestampedEndpoint, {
-                method: 'GET',
-                cache: 'no-cache',
-                headers: {
-                    'Cache-Control': 'no-cache',
-                    'Pragma': 'no-cache'
+        // 更新選擇清單
+        function updateSelectionLists() {
+            const areas = [...new Set(deviceData.map(d => d.area))].sort();
+            const locations = [...new Set(deviceData.map(d => d.location))].sort();
+            const macIds = [...new Set(deviceData.map(d => d.mac_id))].sort();
+            const models = [...new Set(deviceData.map(d => d.model))].sort();
+
+            updateCheckboxList('areaList', areas, 'area');
+            updateCheckboxList('locationList', locations, 'location');
+            updateCheckboxList('macList', macIds, 'mac');
+            updateCheckboxList('modelList', models, 'model');
+
+            updateSelectedCount();
+        }
+
+        // 更新核取方塊清單
+        function updateCheckboxList(containerId, items, type) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'form-check';
+                div.innerHTML = `
+                    <input class="form-check-input" type="checkbox" id="${type}_${item}" 
+                           value="${item}" onchange="updateDeviceSelection()">
+                    <label class="form-check-label" for="${type}_${item}" title="${item}">
+                        ${item}
+                    </label>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        // 更新設備選擇
+        function updateDeviceSelection() {
+            const selectedAreas = getSelectedValues('areaList');
+            const selectedLocations = getSelectedValues('locationList');
+            const selectedMacs = getSelectedValues('macList');
+            const selectedModels = getSelectedValues('modelList');
+
+            selectedDevices.clear();
+
+            deviceData.forEach(device => {
+                const areaMatch = selectedAreas.length === 0 || selectedAreas.includes(device.area);
+                const locationMatch = selectedLocations.length === 0 || selectedLocations.includes(device.location);
+                const macMatch = selectedMacs.length === 0 || selectedMacs.includes(device.mac_id);
+                const modelMatch = selectedModels.length === 0 || selectedModels.includes(device.model);
+
+                if (areaMatch && locationMatch && macMatch && modelMatch) {
+                    selectedDevices.add(device.mac_id);
                 }
             });
-            
-            if (!res.ok) {
-                throw new Error(`HTTP ${res.status}: ${res.statusText}`);
-            }
-            
-            const result = await res.json();
-            console.log('📊 API 回應狀態:', result.success ? '成功' : '失敗');
-            console.log('📈 數據來源:', result.data_source || '未知');
-            console.log('📈 時間窗口:', result.time_window || '未知');
-            
-            if (!result.success || !Array.isArray(result.data)) {
-                console.warn('⚠️  API 回應無效或無資料');
-                renderDualAxisChart([]);
+
+            updateSelectedCount();
+        }
+
+        // 獲取選中的值
+        function getSelectedValues(containerId) {
+            const container = document.getElementById(containerId);
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        // 更新選中計數
+        function updateSelectedCount() {
+            const count = selectedDevices.size;
+            document.getElementById('selectedCount').textContent = count;
+            document.getElementById('generateBtn').disabled = count === 0;
+        }
+
+        // 全選功能
+        function toggleAllAreas() {
+            toggleAllInContainer('areaList', 'selectAllAreas');
+        }
+
+        function toggleAllLocations() {
+            toggleAllInContainer('locationList', 'selectAllLocations');
+        }
+
+        function toggleAllMacs() {
+            toggleAllInContainer('macList', 'selectAllMacs');
+        }
+
+        function toggleAllModels() {
+            toggleAllInContainer('modelList', 'selectAllModels');
+        }
+
+        function toggleAllInContainer(containerId, selectAllId) {
+            const selectAll = document.getElementById(selectAllId);
+            const container = document.getElementById(containerId);
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+
+            checkboxes.forEach(cb => {
+                cb.checked = selectAll.checked;
+            });
+
+            updateDeviceSelection();
+        }
+
+        // 清除所有選擇
+        function clearAllSelections() {
+            ['selectAllAreas', 'selectAllLocations', 'selectAllMacs', 'selectAllModels'].forEach(id => {
+                document.getElementById(id).checked = false;
+            });
+
+            ['areaList', 'locationList', 'macList', 'modelList'].forEach(containerId => {
+                const container = document.getElementById(containerId);
+                const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+                checkboxes.forEach(cb => cb.checked = false);
+            });
+
+            selectedDevices.clear();
+            updateSelectedCount();
+        }
+
+        // 產生圖表
+        async function generateCharts() {
+            if (selectedDevices.size === 0) {
+                alert('請至少選擇一個設備');
                 return;
             }
-            
-            // 使用後端已處理的數據，並額外過濾最近 30 分鐘
-            console.log('📊 使用後端處理的數據 - 來源:', result.data_source, '| 窗口:', result.time_window);
-            console.log('⏰ 前端額外過濾：顯示最近 30 分鐘數據');
-            
-            // 計算 30 分鐘前的時間點
-            const now = new Date();
-            const thirtyMinutesAgo = new Date(now.getTime() - 30 * 60 * 1000);
-            
-            const datasets = result.data.map(chan => {
-                if (!chan.data || !Array.isArray(chan.data)) {
-                    console.warn(`⚠️  通道 ${chan.channel} 無數據`);
-                    return { channel: chan.channel, data: [], unit: chan.unit };
+
+            try {
+                showLoading('正在生成圖表...');
+
+                const container = document.getElementById('chartsContainer');
+                container.innerHTML = '';
+
+                // 為每個選中的設備生成圖表
+                const selectedDeviceList = Array.from(selectedDevices);
+                const rows = Math.ceil(selectedDeviceList.length / 5); // 每行最多5個圖表
+
+                for (let i = 0; i < rows; i++) {
+                    const rowDiv = document.createElement('div');
+                    rowDiv.className = 'row mb-4';
+
+                    const startIndex = i * 5;
+                    const endIndex = Math.min(startIndex + 5, selectedDeviceList.length);
+
+                    for (let j = startIndex; j < endIndex; j++) {
+                        const macId = selectedDeviceList[j];
+                        const device = deviceData.find(d => d.mac_id === macId);
+
+                        if (device) {
+                            const colDiv = document.createElement('div');
+                            colDiv.className = 'col-lg-2 col-md-4 col-sm-6 mb-3';
+
+                            // 獲取設備的電流數據
+                            const chartData = await getDeviceChartData(macId);
+
+                            colDiv.innerHTML = `
+                                <div class="card h-100">
+                                    <div class="card-header p-2">
+                                        <h6 class="mb-0 text-truncate" title="${device.area} - ${device.location}">
+                                            ${device.area}
+                                        </h6>
+                                        <small class="text-muted">${macId}</small>
+                                    </div>
+                                    <div class="card-body p-2">
+                                        <canvas id="chart_${macId.replace(/:/g, '_')}" width="200" height="150"></canvas>
+                                        <div class="mt-1">
+                                            <small class="text-muted">${device.model}</small><br>
+                                            <small class="fw-bold">目前: ${device.current.toFixed(2)}A</small>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+
+                            rowDiv.appendChild(colDiv);
+
+                            // 延遲一點再繪製圖表，確保 DOM 已更新
+                            setTimeout(() => {
+                                drawMiniChart(macId.replace(/:/g, '_'), chartData, device);
+                            }, 100);
+                        }
+                    }
+
+                    container.appendChild(rowDiv);
                 }
-                
-                // 轉換數據格式並過濾最近 30 分鐘
-                const allPts = chan.data.map(e => {
-                    const timestamp = new Date(e.timestamp);
-                    return {
-                        x: timestamp, 
-                        y: parseFloat(e.parameter) || 0,
-                        mac_id: e.mac_id
-                    };
-                }).filter(pt => !isNaN(pt.x.getTime())); // 過濾無效時間戳
-                
-                // 只保留最近 30 分鐘的數據
-                const recentPts = allPts.filter(pt => pt.x >= thirtyMinutesAgo);
-                
-                // 如果最近 30 分鐘沒有數據，取最新的 50 筆作為備用
-                const finalPts = recentPts.length > 0 ? recentPts : allPts.slice(-50);
-                
-                console.log(`📈 通道 ${chan.channel}: 原始${allPts.length}筆 -> 30分鐘內${recentPts.length}筆 -> 最終${finalPts.length}筆`);
-                
-                return { channel: chan.channel, data: finalPts, unit: chan.unit };
-            });
-            
-            console.log('✅ 處理後的資料集:', datasets.map(ds => `CH${ds.channel}:${ds.data.length}筆`).join(', '));
-            
-            // 渲染圖表
-            renderDualAxisChart(datasets);
-            
-            // 更新頁面標題指示最後更新時間
-            const originalTitle = document.title;
-            const baseTitle = originalTitle.includes(' - ') ? originalTitle.split(' - ')[0] : originalTitle;
-            const currentTime = new Date().toLocaleTimeString('zh-TW', {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit'
-            });
-            document.title = `${baseTitle} - ${currentTime}`;
-            
-            const executionTime = Date.now() - startTime;
-            console.log(`✅ showUartChart 執行完成，耗時 ${executionTime}ms`);
-            
-        } catch (e) {
-            const executionTime = Date.now() - startTime;
-            console.error(`❌ showUartChart 錯誤 (耗時 ${executionTime}ms):`, e);
-            
-            // 錯誤時顯示空圖表
-            renderDualAxisChart([]);
-            
-            // 更新狀態顯示
-            const timeRangeElement = document.getElementById('chartTimeRange');
-            if (timeRangeElement) {
-                timeRangeElement.textContent = '數據載入失敗 - 請檢查網路連接或稍後重試 (最近 30 分鐘)';
-                timeRangeElement.className = 'text-danger';
-                timeRangeElement.title = `錯誤詳情: ${e.message}`;
+
+                hideLoading();
+
+            } catch (error) {
+                console.error('生成圖表失敗:', error);
+                hideLoading();
+                alert('生成圖表失敗，請稍後再試');
             }
         }
-    }
 
-    function renderDualAxisChart(channelDatasets) {
-        console.log('🎨 renderDualAxisChart 開始繪製圖表，資料集數量:', channelDatasets.length);
-        
-        const ctx = document.getElementById('dashboardChart');
-        if (!ctx) {
-            console.error('❌ 找不到圖表 canvas 元素');
-            return;
-        }
-        
-        const context2d = ctx.getContext('2d');
-        if (!context2d) {
-            console.error('❌ 無法獲取 2D 繪圖上下文');
-            return;
-        }
-        
-        // 確保先銷毀舊圖表
-        if (dashboardChart) {
-            console.log('🗑️  銷毀舊圖表');
+        // 獲取設備圖表數據
+        async function getDeviceChartData(macId) {
             try {
-                dashboardChart.destroy();
-                dashboardChart = null;
-            } catch (e) {
-                console.warn('⚠️  銷毀舊圖表時發生錯誤:', e);
-                dashboardChart = null;
-            }
-        }
-        
-        // 如果沒有數據，顯示空圖表提示
-        if (!channelDatasets || channelDatasets.length === 0) {
-            console.log('📋 無數據，顯示空圖表');
-            try {
-                dashboardChart = new Chart(context2d, {
-                    type: 'line',
-                    data: { datasets: [] },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {
-                            legend: { display: false },
-                            title: { 
-                                display: true, 
-                                text: '暫無數據，請檢查UART連接或等待數據更新',
-                                color: '#666'
-                            }
-                        },
-                        scales: {
-                            x: { display: false },
-                            y: { display: false }
-                        }
-                    }
-                });
-            } catch (e) {
-                console.error('❌ 創建空圖表失敗:', e);
-            }
-            return;
-        }
-        
-        const palette = ['#2563eb','#f43f5e','#10b981','#d946ef','#f59e0b','#3b82f6','#8b5cf6','#e11d48'];
-        
-        const dataSets = channelDatasets.map((ch, idx) => {
-            const dataPoints = ch.data || [];
-            console.log(`📊 通道 ${ch.channel}: ${dataPoints.length} 個數據點`);
-            
-            return {
-                label: `CH${ch.channel}${ch.unit ? ` (${ch.unit})` : ''}`,
-                data: dataPoints,
-                parsing: { xAxisKey: 'x', yAxisKey: 'y' },
-                borderColor: palette[idx % palette.length],
-                backgroundColor: palette[idx % palette.length] + '20',
-                yAxisID: ch.channel === 7 ? 'battery' : 'current',
-                pointRadius: dataPoints.length > 100 ? 1 : 2, // 數據多時縮小點的大小
-                pointHoverRadius: 4,
-                tension: 0.3,
-                fill: false,
-                borderWidth: 2
-            };
-        });
-        
-        console.log('🎨 建立新圖表，資料集數量:', dataSets.length);
-        
-        // 固定使用分鐘單位，適合 30 分鐘時間範圍
-        console.log('⏰ 使用固定時間單位: minute (適合 30 分鐘範圍)');
-        
-        try {
-            dashboardChart = new Chart(context2d, {
-                type: 'line',
-                data: { datasets: dataSets },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    interaction: {
-                        mode: 'index',
-                        intersect: false,
-                    },
-                    animation: {
-                        duration: 300 // 快速動畫避免閃爍
-                    },
-                    plugins: {
-                        legend: { 
-                            position: 'bottom',
-                            labels: {
-                                usePointStyle: true,
-                                padding: 15,
-                                font: { size: 11 }
-                            }
-                        },
-                        tooltip: {
-                            backgroundColor: 'rgba(255,255,255,0.95)',
-                            titleColor: '#333',
-                            bodyColor: '#666',
-                            borderColor: '#ddd',
-                            borderWidth: 1,
-                            cornerRadius: 8,
-                            displayColors: true,
-                            callbacks: {
-                                title: function(context) {
-                                    if (context.length > 0) {
-                                        const date = new Date(context[0].parsed.x);
-                                        return date.toLocaleString('zh-TW', {
-                                            year: 'numeric',
-                                            month: '2-digit',
-                                            day: '2-digit',
-                                            hour: '2-digit',
-                                            minute: '2-digit',
-                                            second: '2-digit'
-                                        });
-                                    }
-                                    return '';
-                                },
-                                label: function(context) {
-                                    const value = context.parsed.y;
-                                    const unit = context.dataset.label.includes('CH7') ? 'V' : 'A';
-                                    return `${context.dataset.label}: ${value.toFixed(3)} ${unit}`;
-                                }
-                            }
-                        }
-                    },
-                    scales: {
-                        x: {
-                            type: 'time',
-                            // 固定顯示最近 30 分鐘的時間範圍
-                            min: function(context) {
-                                const now = new Date();
-                                return new Date(now.getTime() - 30 * 60 * 1000); // 30 分鐘前
-                            },
-                            max: function(context) {
-                                return new Date(); // 現在時間
-                            },
-                            time: { 
-                                unit: 'minute', // 固定使用分鐘單位，適合 30 分鐘範圍
-                                tooltipFormat: 'yyyy/MM/dd HH:mm:ss',
-                                displayFormats: { 
-                                    second: 'HH:mm:ss',
-                                    minute: 'HH:mm',
-                                    hour: 'HH:mm',
-                                    day: 'MM/dd'
-                                }
-                            },
-                            title: { 
-                                display: true, 
-                                text: '時間 (最近 30 分鐘)',
-                                font: { weight: 'bold' }
-                            },
-                            grid: { color: 'rgba(0,0,0,0.1)' },
-                            ticks: {
-                                maxTicksLimit: 8, // 減少標籤數量，適合 30 分鐘範圍
-                                callback: function(value, index, values) {
-                                    const date = new Date(value);
-                                    return date.toLocaleTimeString('zh-TW', { 
-                                        hour: '2-digit', 
-                                        minute: '2-digit'
-                                    });
-                                }
-                            }
-                        },
-                        current: {
-                            type: 'linear',
-                            position: 'left',
-                            title: { 
-                                display: true, 
-                                text: '電流 (A)',
-                                font: { weight: 'bold' },
-                                color: '#2563eb'
-                            },
-                            min: 0,
-                            max: 100,
-                            grid: { color: 'rgba(37,99,235,0.1)' },
-                            ticks: { 
-                                color: '#2563eb',
-                                stepSize: 10,
-                                callback: function(value) {
-                                    return Math.round(value) + 'A';
-                                }
-                            }
-                        },
-                        battery: {
-                            type: 'linear',
-                            position: 'right',
-                            title: { 
-                                display: true, 
-                                text: '電池電壓 (V)',
-                                font: { weight: 'bold' },
-                                color: '#10b981'
-                            },
-                            grid: { drawOnChartArea: false },
-                            min: 2.5,
-                            max: 4.2,
-                            ticks: { 
-                                color: '#10b981',
-                                stepSize: 0.5,
-                                callback: function(value) {
-                                    return value.toFixed(1) + 'V';
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-            
-            console.log('✅ 圖表創建成功');
-            
-        } catch (e) {
-            console.error('❌ 創建圖表失敗:', e);
-            
-            // 嘗試創建簡化版本的圖表
-            try {
-                dashboardChart = new Chart(context2d, {
-                    type: 'line',
-                    data: { datasets: dataSets },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: { legend: { position: 'bottom' } }
-                    }
-                });
-                console.log('⚡ 簡化圖表創建成功');
-            } catch (fallbackError) {
-                console.error('❌ 簡化圖表也創建失敗:', fallbackError);
-            }
-        }
-    }
-
-    // 缺失的函數定義
-    let autoRefreshEnabled = true;
-
-    function toggleAutoRefresh() {
-        autoRefreshEnabled = !autoRefreshEnabled;
-        const icon = document.getElementById('refreshIcon');
-        const button = icon.parentElement;
-        
-        if (autoRefreshEnabled) {
-            // 啟用自動刷新 - 使用 3 秒間隔確保快速更新
-            if (window.chartRefreshInterval) {
-                clearInterval(window.chartRefreshInterval);
-            }
-            window.chartRefreshInterval = setInterval(showUartChart, 2000);
-            icon.className = 'fas fa-pause';
-            button.classList.remove('btn-warning');
-            button.classList.add('btn-light');
-            console.log('✅ 自動刷新已啟用（2秒間隔，配合CSV優化）');
-        } else {
-            // 停用自動刷新
-            if (window.chartRefreshInterval) {
-                clearInterval(window.chartRefreshInterval);
-                window.chartRefreshInterval = null;
-            }
-            icon.className = 'fas fa-play';
-            button.classList.remove('btn-light');
-            button.classList.add('btn-warning');
-            console.log('⏸️  自動刷新已停用');
-        }
-    }
-
-    function refreshDashboard() {
-        console.log('手動刷新儀表板');
-        // 立即更新所有數據
-        showUartChart();
-        loadDashboardStats();
-        loadMacIds();
-        
-        // 視覺反饋
-        const button = event.target;
-        const originalIcon = button.innerHTML;
-        button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>重新整理';
-        button.disabled = true;
-        
-        setTimeout(() => {
-            button.innerHTML = originalIcon;
-            button.disabled = false;
-        }, 2000);
-    }
-
-    // 移除圖表下載功能，用戶不需要此功能
-
-    let chartTimeOffset = 0; // 時間偏移（以30分鐘為單位）
-
-    function changeChartTime(direction) {
-        chartTimeOffset += direction;
-        
-        // 限制不能看未來的數據
-        if (chartTimeOffset > 0) {
-            chartTimeOffset = 0;
-        }
-        
-        // 更新時間範圍顯示
-        const timeRangeElement = document.getElementById('chartTimeRange');
-        if (timeRangeElement) {
-            if (chartTimeOffset === 0) {
-                timeRangeElement.textContent = '過去 30 分鐘 (即時)';
-            } else {
-                const hoursBack = Math.abs(chartTimeOffset) * 0.5;
-                timeRangeElement.textContent = `${hoursBack} 小時前的 30 分鐘`;
-            }
-        }
-        
-        // 重新載入圖表（這裡需要修改 showUartChart 來支援時間偏移）
-        showUartChart();
-    }
-
-    function showNetworkStatus() {
-        const statusContainer = document.getElementById('networkStatusContainer');
-        const statusText = document.getElementById('networkStatusText');
-        
-        if (!statusContainer || !statusText) return;
-        
-        statusText.textContent = '檢查中...';
-        statusText.className = 'text-muted';
-        
-        // 簡單的網路連線檢查
-        fetch('/api/health', { method: 'HEAD', timeout: 5000 })
-            .then(response => {
+                const response = await fetch(`/api/uart/mac-channels/${macId}`);
                 if (response.ok) {
-                    statusText.textContent = '網路連線正常';
-                    statusText.className = 'text-success';
-                } else {
-                    statusText.textContent = '網路連線異常';
-                    statusText.className = 'text-danger';
+                    const data = await response.json();
+                    return data.success ? data.data : [];
                 }
-            })
-            .catch(error => {
-                statusText.textContent = '無法連接到伺服器';
-                statusText.className = 'text-danger';
-            });
-    }
+            } catch (error) {
+                console.error(`獲取 ${macId} 數據失敗:`, error);
+            }
+            return [];
+        }
+
+        // 繪製迷你圖表
+        function drawMiniChart(chartId, data, device) {
+            const canvas = document.getElementById(`chart_${chartId}`);
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+
+            // 清除畫布
+            ctx.clearRect(0, 0, width, height);
+
+            if (!data || data.length === 0) {
+                // 無數據時顯示提示
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('無數據', width/2, height/2);
+                return;
+            }
+
+            // 取最近的50個數據點
+            const recentData = data.slice(-50);
+            const values = recentData.map(d => parseFloat(d.current) || 0);
+            const maxValue = Math.max(...values, 1);
+            const minValue = Math.min(...values, 0);
+            const range = maxValue - minValue || 1;
+
+            // 繪製背景網格
+            ctx.strokeStyle = '#e9ecef';
+            ctx.lineWidth = 0.5;
+            for (let i = 1; i < 5; i++) {
+                const y = (height / 5) * i;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+
+            // 繪製電流曲線
+            if (values.length > 1) {
+                ctx.strokeStyle = '#007bff';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+
+                const stepX = width / (values.length - 1);
+                values.forEach((value, index) => {
+                    const x = index * stepX;
+                    const y = height - ((value - minValue) / range) * height;
+
+                    if (index === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                });
+
+                ctx.stroke();
+
+                // 填充區域
+                ctx.fillStyle = 'rgba(0, 123, 255, 0.1)';
+                ctx.lineTo(width, height);
+                ctx.lineTo(0, height);
+                ctx.closePath();
+                ctx.fill();
+            }
+
+            // 顯示最大最小值
+            ctx.fillStyle = '#495057';
+            ctx.font = '9px Arial';
+            ctx.textAlign = 'left';
+            ctx.fillText(`Max: ${maxValue.toFixed(1)}A`, 2, 10);
+            ctx.fillText(`Min: ${minValue.toFixed(1)}A`, 2, height - 2);
+        }
+
+        // 載入和隱藏 loading 的輔助函數
+        function showLoading(message = '載入中...') {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                overlay.querySelector('p').textContent = message;
+                overlay.style.display = 'flex';
+            }
+        }
+
+        function hideLoading() {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
     </script>
 </body>
 </html>
