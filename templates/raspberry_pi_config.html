@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>樹莓派連接配置</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .status-connected { color: #28a745; }
+        .status-disconnected { color: #dc3545; }
+        .config-card { 
+            max-width: 600px; 
+            margin: 20px auto; 
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="row">
+            <div class="col-12">
+                <h1 class="text-center mt-4 mb-4">樹莓派連接配置</h1>
+                
+                <!-- 連接狀態 -->
+                <div class="card config-card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">連接狀態</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <p><strong>狀態：</strong> 
+                                    <span class="{% if status.connected %}status-connected{% else %}status-disconnected{% endif %}">
+                                        {% if status.connected %}✅ 已連接{% else %}❌ 未連接{% endif %}
+                                    </span>
+                                </p>
+                                <p><strong>訊息：</strong> {{ status.message }}</p>
+                                <p><strong>回應時間：</strong> {{ status.response_time }}</p>
+                            </div>
+                            <div class="col-md-6">
+                                <p><strong>目標位址：</strong> {{ config.host }}:{{ config.port }}</p>
+                                <p><strong>超時設定：</strong> {{ config.timeout }} 秒</p>
+                                <button type="button" class="btn btn-outline-primary btn-sm" onclick="testConnection()">
+                                    <span id="test-btn-text">測試連接</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 配置設定 -->
+                <div class="card config-card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">連接設定</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="configForm">
+                            <div class="row">
+                                <div class="col-md-8">
+                                    <div class="mb-3">
+                                        <label for="host" class="form-label">樹莓派 IP 地址</label>
+                                        <input type="text" class="form-control" id="host" value="{{ config.host }}" placeholder="例如: 192.168.1.100">
+                                        <div class="form-text">請輸入樹莓派在同一網路中的 IP 地址</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="mb-3">
+                                        <label for="port" class="form-label">端口</label>
+                                        <input type="number" class="form-control" id="port" value="{{ config.port }}" min="1" max="65535">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3">
+                                        <label for="timeout" class="form-label">連接超時 (秒)</label>
+                                        <input type="number" class="form-control" id="timeout" value="{{ config.timeout }}" min="1" max="60">
+                                    </div>
+                                </div>
+                                <div class="col-md-6 d-flex align-items-end">
+                                    <button type="submit" class="btn btn-primary me-2">保存設定</button>
+                                    <a href="/dashboard" class="btn btn-secondary">返回儀表板</a>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- 使用說明 -->
+                <div class="card config-card">
+                    <div class="card-header">
+                        <h5 class="card-title mb-0">使用說明</h5>
+                    </div>
+                    <div class="card-body">
+                        <ol>
+                            <li><strong>確保網路連接：</strong> 確保此 PC 和樹莓派連接到同一個路由器</li>
+                            <li><strong>獲取樹莓派 IP：</strong> 在樹莓派上執行 <code>hostname -I</code> 命令來獲取 IP 地址</li>
+                            <li><strong>確認服務運行：</strong> 確保樹莓派上的 app_integrated.py 正在運行 (端口 5000)</li>
+                            <li><strong>測試連接：</strong> 點擊「測試連接」按鈕確認連接正常</li>
+                        </ol>
+                        <div class="alert alert-info mt-3">
+                            <strong>提示：</strong> 如果無法連接，請檢查防火牆設定或嘗試在瀏覽器中訪問 
+                            <code>http://{{ config.host }}:{{ config.port }}</code>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // 測試連接
+        function testConnection() {
+            const btn = document.getElementById('test-btn-text');
+            btn.textContent = '測試中...';
+            
+            fetch('/api/raspberry-pi-config')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        const status = data.status;
+                        if (status.connected) {
+                            alert('✅ 連接成功！\n' + status.message);
+                        } else {
+                            alert('❌ 連接失敗\n' + status.message);
+                        }
+                    } else {
+                        alert('測試失敗: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('測試失敗: ' + error.message);
+                })
+                .finally(() => {
+                    btn.textContent = '測試連接';
+                });
+        }
+
+        // 保存配置
+        document.getElementById('configForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            
+            const formData = {
+                host: document.getElementById('host').value,
+                port: parseInt(document.getElementById('port').value),
+                timeout: parseInt(document.getElementById('timeout').value)
+            };
+            
+            fetch('/api/raspberry-pi-config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(formData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('✅ 配置已保存！');
+                    location.reload(); // 重新載入頁面以顯示新狀態
+                } else {
+                    alert('❌ 保存失敗: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('保存失敗: ' + error.message);
+            });
+        });
+    </script>
+</body>
+</html>

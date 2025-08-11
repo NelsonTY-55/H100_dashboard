@@ -40,15 +40,13 @@
       "timeout": 30
     },
     "TCP": {
-      "host": "127.0.0.1",
-      "port": 5022,
+      "host": "0.0.0.0",
+      "port": 5020,
       "timeout": 10,
-      "retry_count": 3,
-      "configured": true
+      "retry_count": 3
     }
   },
   "offline_mode": true,
   "data_retention_days": 30,
-  "max_data_points": 1000,
-  "active_protocol": "TCP"
+  "max_data_points": 1000
 }
