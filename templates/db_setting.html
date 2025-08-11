@@ -436,6 +436,16 @@
                                     <div id="debugMacIds" class="text-muted">尚未載入 MAC ID</div>
                                 </div>
                             </div>
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <button class="btn btn-sm btn-primary me-2" onclick="debugMacIdApi()">
+                                        <i class="fas fa-bug me-1"></i>調試 MAC ID API
+                                    </button>
+                                    <button class="btn btn-sm btn-secondary" onclick="loadMacIdList()">
+                                        <i class="fas fa-sync me-1"></i>重新載入 MAC ID
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -479,7 +489,17 @@
             try {
                 document.getElementById('channelInfo').innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>載入頻道資訊中...';
                 
-                const response = await fetch(`http://localhost:5001/api/uart/mac-channels/${macId}`);
+                // 創建 AbortController 來處理超時
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 8000); // 8秒超時
+                
+                // 使用相對路徑
+                const response = await fetch(`/api/uart/mac-channels/${macId}`, {
+                    signal: controller.signal
+                });
+                
+                clearTimeout(timeoutId);
+                
                 if (response.ok) {
                     const data = await response.json();
                     console.log('頻道 API 響應:', data);
@@ -522,15 +542,25 @@
                         throw new Error(data.message || '未知錯誤');
                     }
                 } else {
-                    throw new Error(`HTTP ${response.status}`);
+                    throw new Error(`HTTP ${response.status} - ${response.statusText}`);
                 }
             } catch (error) {
                 console.error('載入頻道資訊失敗:', error);
+                
+                let errorMessage = '載入頻道資訊失敗';
+                if (error.name === 'AbortError') {
+                    errorMessage = '頻道資訊載入超時';
+                } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    errorMessage = '無法連接到伺服器載入頻道資訊';
+                } else {
+                    errorMessage = `載入頻道資訊失敗: ${error.message}`;
+                }
+                
                 // 載入失敗時使用預設配置
                 CHANNEL_CONFIG.CURRENT_CHANNELS = getDefaultChannels();
                 generateChannelInputs(getDefaultChannels().map(ch => parseInt(ch)));
                 document.getElementById('channelInfo').innerHTML = 
-                    `<i class="fas fa-exclamation-triangle text-danger me-2"></i>載入頻道資訊失敗，使用預設配置: ${error.message}`;
+                    `<i class="fas fa-exclamation-triangle text-danger me-2"></i>${errorMessage}，使用預設配置`;
             }
         }
         
@@ -773,14 +803,23 @@
                 
                 // 添加時間戳防止快取，並設置較短的超時時間
                 const timestamp = new Date().getTime();
-                const response = await fetch(`http://localhost:5001/api/uart/mac-ids?t=${timestamp}`, {
+                
+                // 創建 AbortController 來處理超時（相容性更好）
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
+                
+                // 使用相對路徑避免 CORS 問題
+                const response = await fetch(`/api/uart/mac-ids?t=${timestamp}`, {
                     method: 'GET',
                     cache: 'no-cache',
                     headers: {
                         'Cache-Control': 'no-cache',
                         'Pragma': 'no-cache'
-                    }
+                    },
+                    signal: controller.signal
                 });
+                
+                clearTimeout(timeoutId); // 清除超時定時器
                 
                 console.log('MAC ID API 響應狀態:', response.status);
                 
@@ -824,11 +863,21 @@
                 }
             } catch (error) {
                 console.error('載入 MAC ID 列表失敗:', error);
-                document.getElementById('macIdStatus').textContent = `載入失敗: ${error.message}`;
+                
+                let errorMessage = '載入失敗';
+                if (error.name === 'AbortError') {
+                    errorMessage = '請求超時，請檢查伺服器狀態';
+                } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    errorMessage = '無法連接到伺服器，請確認服務是否運行';
+                } else {
+                    errorMessage = `載入失敗: ${error.message}`;
+                }
+                
+                document.getElementById('macIdStatus').textContent = errorMessage;
                 document.getElementById('macIdStatus').className = 'text-danger ms-2';
                 
                 // 更新調試面板
-                updateDebugInfo('MAC ID API 異常', { error: error.message });
+                updateDebugInfo('MAC ID API 異常', { error: error.message, errorType: error.name });
             }
         }
 
@@ -899,52 +948,91 @@
             }, 30000); // 30秒
         }
         
-        // 測試UART連接狀態
-        async function testUartConnection() {
+        // 測試 API 連接
+        async function testApiConnection() {
             try {
-                console.log('測試 UART 連接狀態');
+                console.log('測試 API 連接');
                 const statusElement = document.getElementById('macIdStatus');
-                statusElement.textContent = '測試 UART 連接中...';
+                statusElement.textContent = '測試 API 連接中...';
                 statusElement.className = 'text-info ms-2';
                 
-                // 測試 UART 狀態 API
-                const response = await fetch('http://localhost:5001/api/uart/status', {
-                    method: 'GET',
-                    cache: 'no-cache'
-                });
+                // 測試基本的 API 端點
+                const tests = [
+                    { name: 'UART 狀態', url: 'http://localhost:5001/api/uart/status' },
+                    { name: 'MAC ID 列表', url: 'http://localhost:5001/api/uart/mac-ids' },
+                    { name: '設備設定', url: 'http://localhost:5001/api/device-settings' }
+                ];
                 
-                if (response.ok) {
-                    const data = await response.json();
-                    console.log('UART 狀態響應:', data);
-                    
-                    let statusMessage = `UART 狀態: ${data.is_running ? '運行中' : '未運行'}, 數據量: ${data.data_count || 0}`;
-                    if (data.latest_data && data.latest_data.length > 0) {
-                        statusMessage += `, 最新數據: ${data.latest_data.length} 筆`;
+                let results = [];
+                
+                for (const test of tests) {
+                    try {
+                        // 創建 AbortController 來處理超時
+                        const controller = new AbortController();
+                        const timeoutId = setTimeout(() => controller.abort(), 5000); // 5秒超時
+                        
+                        const response = await fetch(test.url, {
+                            method: 'GET',
+                            cache: 'no-cache',
+                            signal: controller.signal
+                        });
+                        
+                        clearTimeout(timeoutId);
+                        
+                        results.push({
+                            name: test.name,
+                            status: response.status,
+                            ok: response.ok,
+                            message: response.ok ? '成功' : `HTTP ${response.status}`
+                        });
+                        
+                        console.log(`${test.name} API 測試: ${response.status}`);
+                    } catch (error) {
+                        results.push({
+                            name: test.name,
+                            status: 'ERROR',
+                            ok: false,
+                            message: error.name === 'AbortError' ? '超時' : error.message
+                        });
+                        
+                        console.error(`${test.name} API 測試失敗:`, error);
                     }
-                    
-                    statusElement.textContent = statusMessage;
-                    statusElement.className = data.is_running ? 'text-success ms-2' : 'text-warning ms-2';
-                    
-                    // 如果 UART 運行中但沒有數據，提示用戶
-                    if (data.is_running && (!data.latest_data || data.latest_data.length === 0)) {
-                        alert('UART 服務正在運行，但尚未接收到任何數據。\n請確認設備是否正確連接並發送數據。');
-                    } else if (!data.is_running) {
-                        alert('UART 服務未運行。\n請先啟動 UART 服務以接收 MAC ID 數據。');
-                    } else {
-                        // 有數據的情況下，嘗試刷新 MAC ID 列表
-                        await loadMacIdList();
-                    }
-                } else {
-                    statusElement.textContent = `測試失敗: HTTP ${response.status}`;
-                    statusElement.className = 'text-danger ms-2';
-                    alert(`無法連接到 UART API\nHTTP 錯誤: ${response.status}`);
                 }
+                
+                // 顯示測試結果
+                const successCount = results.filter(r => r.ok).length;
+                const totalTests = results.length;
+                
+                let statusMessage = `API 測試完成: ${successCount}/${totalTests} 成功`;
+                let statusClass = successCount === totalTests ? 'text-success ms-2' : 
+                                 successCount > 0 ? 'text-warning ms-2' : 'text-danger ms-2';
+                
+                statusElement.textContent = statusMessage;
+                statusElement.className = statusClass;
+                
+                // 更新調試面板
+                updateDebugInfo('API 連接測試', { results, summary: statusMessage });
+                
+                // 顯示詳細結果
+                const detailsText = results.map(r => 
+                    `${r.name}: ${r.message}`
+                ).join('\n');
+                
+                if (successCount < totalTests) {
+                    alert(`API 連接測試結果:\n\n${detailsText}\n\n建議檢查:\n1. Flask 應用程式是否在 5001 端口運行\n2. 防火牆是否允許連接\n3. 網路連接是否正常`);
+                } else {
+                    alert(`API 連接測試全部成功!\n\n${detailsText}`);
+                    // 如果全部成功，自動重新載入 MAC ID
+                    await loadMacIdList();
+                }
+                
             } catch (error) {
-                console.error('測試 UART 連接失敗:', error);
+                console.error('API 連接測試失敗:', error);
                 const statusElement = document.getElementById('macIdStatus');
-                statusElement.textContent = `測試失敗: ${error.message}`;
+                statusElement.textContent = `API 測試失敗: ${error.message}`;
                 statusElement.className = 'text-danger ms-2';
-                alert(`測試 UART 連接時發生錯誤:\n${error.message}`);
+                
+                alert(`API 連接測試時發生錯誤:\n${error.message}`);
             }
         }
         
@@ -1201,6 +1289,46 @@
             }
         });
 
+        // 簡單的 API 測試函數
+        async function debugMacIdApi() {
+            try {
+                console.log('=== 開始調試 MAC ID API ===');
+                
+                // 顯示當前瀏覽器信息
+                console.log('User Agent:', navigator.userAgent);
+                console.log('當前 URL:', window.location.href);
+                
+                const timestamp = new Date().getTime();
+                const url = `/api/uart/mac-ids?t=${timestamp}`;
+                console.log('請求 URL:', url);
+                
+                // 使用相對路徑而不是絕對路徑
+                const response = await fetch(url, {
+                    method: 'GET',
+                    cache: 'no-cache',
+                    headers: {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    }
+                });
+                
+                console.log('響應狀態:', response.status);
+                console.log('響應頭:', [...response.headers.entries()]);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('響應數據:', data);
+                    alert(`調試成功！\n狀態: ${response.status}\nMAC IDs: ${data.mac_ids?.join(', ') || '無'}\n數據來源: ${data.data_source || '未知'}`);
+                } else {
+                    console.error('HTTP 錯誤:', response.status, response.statusText);
+                    alert(`HTTP 錯誤: ${response.status} ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('調試錯誤:', error);
+                alert(`調試錯誤: ${error.message}`);
+            }
+        }
+        
         // 頁面載入完成後初始化
         document.addEventListener('DOMContentLoaded', function() {
             updateTime();

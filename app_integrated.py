@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, session, make_response
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, session, make_response, send_from_directory
 from config_manager import ConfigManager
 from uart_integrated import uart_reader, protocol_manager
 from network_utils import network_checker, create_offline_mode_manager
@@ -57,6 +57,27 @@ logging.basicConfig(
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'  # 若尚未設置
+
+# CORS 處理
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization,Cache-Control,Pragma')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    response.headers.add('Access-Control-Max-Age', '3600')  # 預檢請求快取1小時
+    return response
+
+# 處理 OPTIONS 預檢請求
+@app.before_request
+def handle_preflight():
+    if request.method == "OPTIONS":
+        response = make_response()
+        response.headers.add("Access-Control-Allow-Origin", "*")
+        response.headers.add('Access-Control-Allow-Headers', "*")
+        response.headers.add('Access-Control-Allow-Methods', "*")
+        response.headers.add('Access-Control-Max-Age', '3600')
+        logging.info(f'處理 OPTIONS 預檢請求: {request.url} from {request.remote_addr}')
+        return response
 
 # 設定 Flask Dashboard（如果有安裝的話）
 if DASHBOARD_AVAILABLE:
@@ -266,6 +287,11 @@ def home():
     response.headers['Expires'] = '0'
     
     return response
+
+@app.route('/test-mac-id')
+def test_mac_id():
+    """MAC ID 測試頁面"""
+    return render_template('mac_id_test.html')
 
 # 設備設定路由
 @app.route('/db-setting')
@@ -1288,31 +1314,54 @@ def clear_uart_data():
 def get_uart_mac_ids():
     """API: 獲取UART接收到的MAC ID列表"""
     try:
+        logging.info(f'API請求: /api/uart/mac-ids from {request.remote_addr}')
+        
         data = uart_reader.get_latest_data()
+        logging.info(f'UART數據總數: {len(data) if data else 0}')
         
         if not data:
+            # 嘗試從歷史文件載入
+            uart_reader.load_historical_data()
+            data = uart_reader.get_latest_data()
+            data_source = '歷史文件'
+            logging.info(f'從歷史文件載入數據: {len(data) if data else 0} 筆')
+        else:
+            data_source = 'UART即時數據'
+            
+        if not data:
+            logging.warning('沒有可用的UART數據')
             return jsonify({
                 'success': True, 
                 'mac_ids': [], 
-                'message': '暫無UART數據，請先啟動UART讀取'
+                'data_source': data_source,
+                'message': '暫無UART數據，請先啟動UART讀取或檢查歷史數據'
             })
         
         # 從UART數據中提取所有的MAC ID
         mac_ids = []
+        valid_mac_count = 0
+        
         for entry in data:
             mac_id = entry.get('mac_id')
             if mac_id and mac_id not in ['N/A', '', None]:
+                valid_mac_count += 1
                 mac_ids.append(mac_id)
         
         # 去重複並排序
         unique_mac_ids = sorted(list(set(mac_ids)))
         
+        logging.info(f'MAC ID 處理結果: 總數據{len(data)}, 有效MAC數據{valid_mac_count}, 唯一MAC ID數{len(unique_mac_ids)}')
+        if unique_mac_ids:
+            logging.info(f'找到的 MAC IDs: {unique_mac_ids}')
+
         return jsonify({
             'success': True,
             'mac_ids': unique_mac_ids,
+            'data_source': data_source,
             'total_records': len(data),
             'unique_mac_count': len(unique_mac_ids),
-            'message': f'找到 {len(unique_mac_ids)} 個唯一的 MAC ID'
+            'valid_mac_records': valid_mac_count,
+            'message': f'找到 {len(unique_mac_ids)} 個唯一的 MAC ID (來源: {data_source})'
         })
         
     except Exception as e:
