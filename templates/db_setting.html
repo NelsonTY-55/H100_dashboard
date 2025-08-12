@@ -216,10 +216,10 @@
                                 <div class="col-md-6">
                                     <div class="mb-3">
                                         <label for="deviceName" class="form-label">
-                                            <i class="fas fa-tag me-1"></i>設備名稱 <span class="text-danger">*</span>
+                                            <i class="fas fa-tag me-1"></i>廠區 <span class="text-danger">*</span>
                                         </label>
                                         <input type="text" class="form-control" id="deviceName" 
-                                               placeholder="請輸入設備名稱（例如：生產線A-1）" 
+                                               placeholder="請輸入廠區（例如：生產線A-1）" 
                                                maxlength="50" required>
                                         <div class="form-text">設備名稱將顯示在儀表板標題中，最多50個字元</div>
                                     </div>
@@ -321,7 +321,7 @@
                                     <div>
                                         <h4 class="mb-0">
                                             <i class="fas fa-tachometer-alt me-2"></i>
-                                            <span id="previewDeviceName">未設定設備名稱</span> - Flask Dashboard
+                                            <span id="previewDeviceName">未設定廠區</span> - Flask Dashboard
                                         </h4>
                                         <p class="mb-0 opacity-75">
                                             <span class="status-indicator"></span>
@@ -340,7 +340,7 @@
                                 <h6>設備詳細資訊：</h6>
                                 <div class="row">
                                     <div class="col-md-3">
-                                        <strong>設備名稱：</strong><br>
+                                        <strong>廠區：</strong><br>
                                         <span id="previewNameDetail">未設定</span>
                                     </div>
                                     <div class="col-md-3">
@@ -633,7 +633,7 @@
                     await loadDeviceByMacId(targetMacId);
                 } else {
                     // 沒有指定 MAC ID，載入一般設定
-                    const response = await fetch('http://localhost:5001/api/device-settings');
+                    const response = await fetch('/api/device-settings');
                     if (response.ok) {
                         const data = await response.json();
                         if (data.success) {
@@ -690,7 +690,7 @@
         async function loadDeviceByMacId(macId) {
             try {
                 // 先從設備 API 獲取該設備的詳細資訊
-                const devicesResponse = await fetch('http://localhost:5001/api/dashboard/devices');
+                const devicesResponse = await fetch('/api/dashboard/devices');
                 if (!devicesResponse.ok) {
                     throw new Error('無法獲取設備列表');
                 }
@@ -744,7 +744,7 @@
                     }
                 }, 500); // 等待500ms讓頻道載入完成
                 
-                // 如果有設備名稱，啟用儀表板按鈕
+                // 如果有廠區，啟用儀表板按鈕
                 if (targetDevice.device_name) {
                     document.getElementById('dashboardBtn').disabled = false;
                 }
@@ -778,7 +778,7 @@
                 alert(`載入設備設定失敗: ${error.message}\n\n將改為載入一般設定。`);
                 
                 // 載入失敗時，回到一般設定載入模式
-                const response = await fetch('http://localhost:5001/api/device-settings');
+                const response = await fetch('/api/device-settings');
                 if (response.ok) {
                     const data = await response.json();
                     if (data.success) {
@@ -958,9 +958,9 @@
                 
                 // 測試基本的 API 端點
                 const tests = [
-                    { name: 'UART 狀態', url: 'http://localhost:5001/api/uart/status' },
-                    { name: 'MAC ID 列表', url: 'http://localhost:5001/api/uart/mac-ids' },
-                    { name: '設備設定', url: 'http://localhost:5001/api/device-settings' }
+                    { name: 'UART 狀態', url: '/api/uart/status' },
+                    { name: 'MAC ID 列表', url: '/api/uart/mac-ids' },
+                    { name: '設備設定', url: '/api/device-settings' }
                 ];
                 
                 let results = [];
@@ -1093,7 +1093,7 @@
 
         // 預覽設定
         function previewSettings() {
-            const deviceName = document.getElementById('deviceName').value || '未設定設備名稱';
+            const deviceName = document.getElementById('deviceName').value || '未設定廠區';
             const deviceLocation = document.getElementById('deviceLocation').value;
             
             // 取得當前實際可用頻道的型號
@@ -1222,7 +1222,7 @@
             
             const deviceName = document.getElementById('deviceName').value.trim();
             if (!deviceName) {
-                alert('請輸入設備名稱！');
+                alert('請輸入廠區！');
                 return;
             }
 
@@ -1249,7 +1249,7 @@
             };
 
             try {
-                const response = await fetch('http://localhost:5001/api/device-settings', {
+                const response = await fetch('/api/device-settings', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -1280,12 +1280,19 @@
                 }
             } catch (error) {
                 console.error('儲存設定時發生錯誤:', error);
-                alert('儲存設定時發生錯誤，請稍後再試。\n錯誤詳情：' + error.message);
                 
-                // 如果是網路錯誤，建議檢查伺服器狀態
+                let errorMessage = '儲存設定時發生錯誤，請稍後再試。';
+                
+                // 提供更詳細的錯誤信息
                 if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                    alert('無法連接到伺服器，請檢查：\n1. Flask 應用程式是否正在運行\n2. 網路連接是否正常\n3. 伺服器地址是否正確');
+                    errorMessage = '無法連接到伺服器，請檢查：\n1. Flask 應用程式是否正在運行\n2. 網路連接是否正常\n3. 伺服器端口是否正確 (5000)';
+                } else if (error.name === 'SyntaxError') {
+                    errorMessage = '伺服器響應格式錯誤，請檢查伺服器狀態';
+                } else {
+                    errorMessage += '\n錯誤詳情：' + error.message;
                 }
+                
+                alert(errorMessage);
             }
         });
 

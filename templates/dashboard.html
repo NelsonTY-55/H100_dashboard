@@ -504,6 +504,36 @@
             border-radius: 4px;
             font-size: 0.9rem;
         }
+
+        /* 設備資料來源標籤樣式 */
+        .badge {
+            padding: 0.25em 0.5em;
+            font-size: 0.75em;
+            font-weight: 600;
+            border-radius: 0.375rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .bg-info {
+            background-color: #0dcaf0 !important;
+            color: #000 !important;
+        }
+
+        .bg-success {
+            background-color: #198754 !important;
+            color: #fff !important;
+        }
+
+        .bg-secondary {
+            background-color: #6c757d !important;
+            color: #fff !important;
+        }
+
+        .badge-sm {
+            font-size: 0.7rem;
+            padding: 0.2em 0.4em;
+        }
     </style>
 </head>
 <body>
@@ -880,25 +910,85 @@
                 showLoading('正在載入設備資料...');
 
                 // 同時從多個 API 獲取資料
-                const [macResponse, deviceResponse] = await Promise.all([
+                const [macResponse, deviceResponse, multiDeviceResponse] = await Promise.all([
                     fetch('/api/uart/mac-ids'),
-                    fetch('/api/dashboard/devices').catch(() => null)
+                    fetch('/api/dashboard/devices').catch(() => null),
+                    fetch('/api/multi-device-settings').catch(() => null)
                 ]);
 
                 let devices = [];
 
-                // 處理 MAC ID 資料
+                // 處理 UART MAC ID 資料
                 if (macResponse.ok) {
                     const macData = await macResponse.json();
-                    if (macData.success && macData.data) {
-                        devices = macData.data.map(item => ({
-                            area: item.area || '未分類廠區',
-                            location: item.location || '未知位置',
-                            mac_id: item.mac_id,
-                            model: item.device_type || '未知型號',
-                            current: item.current || 0,
-                            channels: item.channels || []
+                    console.log('UART MAC API 回應:', macData);
+                    if (macData.success && macData.mac_ids) {
+                        devices = macData.mac_ids.map(macId => ({
+                            area: '未分類廠區',
+                            location: '未知位置',
+                            mac_id: macId,
+                            model: '未知型號',
+                            current: 0,
+                            channels: [],
+                            source: 'uart'
                         }));
+                    }
+                }
+
+                // 處理多設備設定資料
+                if (multiDeviceResponse && multiDeviceResponse.ok) {
+                    const multiDeviceData = await multiDeviceResponse.json();
+                    console.log('多設備設定 API 回應:', multiDeviceData);
+                    if (multiDeviceData.success && multiDeviceData.devices) {
+                        // 從 multi_device_settings.json 載入的設備
+                        Object.keys(multiDeviceData.devices).forEach(macId => {
+                            const setting = multiDeviceData.devices[macId];
+                            console.log(`處理設備 ${macId}:`, setting);
+                            
+                            // 檢查是否已經存在（來自UART數據）
+                            const existingIndex = devices.findIndex(d => d.mac_id === macId);
+                            
+                            // 處理設備型號 - 可能是字串或物件
+                            let deviceModel = '未知型號';
+                            if (setting.device_model) {
+                                if (typeof setting.device_model === 'object') {
+                                    // 如果是物件，取第一個有值的頻道型號
+                                    const modelValues = Object.values(setting.device_model).filter(v => v && v.trim());
+                                    deviceModel = modelValues.length > 0 ? modelValues[0] : '未知型號';
+                                } else {
+                                    deviceModel = setting.device_model;
+                                }
+                            } else if (setting.device_name) {
+                                deviceModel = setting.device_name;
+                            }
+                            
+                            const deviceInfo = {
+                                area: setting.device_location || '未分類廠區',
+                                location: setting.device_location || '未知位置',
+                                mac_id: macId,
+                                model: deviceModel,
+                                current: 0, // 預設值，實際值會從其他API獲取
+                                channels: [],
+                                source: 'settings',
+                                deviceName: setting.device_name,
+                                deviceDescription: setting.device_description,
+                                deviceModel: setting.device_model
+                            };
+
+                            if (existingIndex >= 0) {
+                                // 更新現有設備的資訊
+                                devices[existingIndex] = {
+                                    ...devices[existingIndex],
+                                    ...deviceInfo,
+                                    source: 'both' // 同時存在於UART和設定中
+                                };
+                                console.log(`更新現有設備 ${macId}`);
+                            } else {
+                                // 新增設備
+                                devices.push(deviceInfo);
+                                console.log(`新增設備 ${macId}`);
+                            }
+                        });
                     }
                 }
 
@@ -912,6 +1002,7 @@
                 }
 
                 deviceData = devices;
+                console.log('載入的設備資料:', deviceData);
                 updateSelectionLists();
                 hideLoading();
 
@@ -924,15 +1015,19 @@
 
         // 更新選擇清單
         function updateSelectionLists() {
+            // 只初始化廠區選擇，其他選項會根據廠區選擇動態更新
             const areas = [...new Set(deviceData.map(d => d.area))].sort();
-            const locations = [...new Set(deviceData.map(d => d.location))].sort();
-            const macIds = [...new Set(deviceData.map(d => d.mac_id))].sort();
-            const models = [...new Set(deviceData.map(d => d.model))].sort();
-
             updateCheckboxList('areaList', areas, 'area');
-            updateCheckboxList('locationList', locations, 'location');
-            updateCheckboxList('macList', macIds, 'mac');
-            updateCheckboxList('modelList', models, 'model');
+            
+            // 清空其他選項
+            document.getElementById('locationList').innerHTML = '<div class="text-muted small">請先選擇廠區</div>';
+            document.getElementById('macList').innerHTML = '<div class="text-muted small">請先選擇設備位置</div>';
+            document.getElementById('modelList').innerHTML = '<div class="text-muted small">請先選擇 MAC ID</div>';
+            
+            // 禁用其他選項的全選按鈕
+            document.getElementById('selectAllLocations').disabled = true;
+            document.getElementById('selectAllMacs').disabled = true;
+            document.getElementById('selectAllModels').disabled = true;
 
             updateSelectedCount();
         }
@@ -945,11 +1040,80 @@
             items.forEach(item => {
                 const div = document.createElement('div');
                 div.className = 'form-check';
+                
+                // 根據當前階層計算相關設備數量
+                let labelText = item;
+                let titleText = item;
+                let deviceCount = 0;
+                
+                if (type === 'area') {
+                    // 計算該廠區的設備數量
+                    deviceCount = deviceData.filter(device => device.area === item).length;
+                    if (deviceCount > 0) {
+                        labelText = `${item} (${deviceCount}台)`;
+                        titleText = `廠區: ${item} - 共 ${deviceCount} 台設備`;
+                    }
+                } else if (type === 'location') {
+                    // 計算該位置的設備數量（考慮已選擇的廠區）
+                    const selectedAreas = getSelectedValues('areaList');
+                    deviceCount = deviceData.filter(device => 
+                        device.location === item && 
+                        (selectedAreas.length === 0 || selectedAreas.includes(device.area))
+                    ).length;
+                    if (deviceCount > 0) {
+                        labelText = `${item} (${deviceCount}台)`;
+                        titleText = `位置: ${item} - 共 ${deviceCount} 台設備`;
+                    }
+                } else if (type === 'mac') {
+                    // 對於 MAC ID，顯示設備名稱
+                    const device = deviceData.find(d => d.mac_id === item);
+                    if (device && device.deviceName) {
+                        labelText = `${item} (${device.deviceName})`;
+                        titleText = `MAC: ${item} - 設備: ${device.deviceName}`;
+                    } else {
+                        titleText = `MAC: ${item}`;
+                    }
+                } else if (type === 'model') {
+                    // 計算使用該型號的設備數量（考慮已選擇的條件）
+                    const selectedAreas = getSelectedValues('areaList');
+                    const selectedLocations = getSelectedValues('locationList');
+                    const selectedMacs = getSelectedValues('macList');
+                    
+                    deviceData.forEach(device => {
+                        // 檢查是否符合已選擇的條件
+                        const areaMatch = selectedAreas.length === 0 || selectedAreas.includes(device.area);
+                        const locationMatch = selectedLocations.length === 0 || selectedLocations.includes(device.location);
+                        const macMatch = selectedMacs.length === 0 || selectedMacs.includes(device.mac_id);
+                        
+                        if (areaMatch && locationMatch && macMatch) {
+                            let hasThisModel = false;
+                            
+                            if (device.model === item) hasThisModel = true;
+                            if (device.deviceName === item) hasThisModel = true;
+                            
+                            if (device.deviceModel && typeof device.deviceModel === 'object') {
+                                Object.values(device.deviceModel).forEach(channelModel => {
+                                    if (channelModel && channelModel.trim() === item) {
+                                        hasThisModel = true;
+                                    }
+                                });
+                            }
+                            
+                            if (hasThisModel) deviceCount++;
+                        }
+                    });
+                    
+                    if (deviceCount > 0) {
+                        labelText = `${item} (${deviceCount}台)`;
+                        titleText = `型號: ${item} - 共 ${deviceCount} 台設備`;
+                    }
+                }
+                
                 div.innerHTML = `
-                    <input class="form-check-input" type="checkbox" id="${type}_${item}" 
+                    <input class="form-check-input" type="checkbox" id="${type}_${item.replace(/[^a-zA-Z0-9]/g, '_')}" 
                            value="${item}" onchange="updateDeviceSelection()">
-                    <label class="form-check-label" for="${type}_${item}" title="${item}">
-                        ${item}
+                    <label class="form-check-label" for="${type}_${item.replace(/[^a-zA-Z0-9]/g, '_')}" title="${titleText}">
+                        ${labelText}
                     </label>
                 `;
                 container.appendChild(div);
@@ -963,13 +1127,38 @@
             const selectedMacs = getSelectedValues('macList');
             const selectedModels = getSelectedValues('modelList');
 
+            // 階層式更新選項
+            updateLocationsByAreas(selectedAreas);
+            updateMacsByLocations(selectedAreas, selectedLocations);
+            updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs);
+
+            // 更新最終選擇的設備
             selectedDevices.clear();
 
             deviceData.forEach(device => {
                 const areaMatch = selectedAreas.length === 0 || selectedAreas.includes(device.area);
                 const locationMatch = selectedLocations.length === 0 || selectedLocations.includes(device.location);
                 const macMatch = selectedMacs.length === 0 || selectedMacs.includes(device.mac_id);
-                const modelMatch = selectedModels.length === 0 || selectedModels.includes(device.model);
+                
+                // 檢查型號匹配
+                let modelMatch = selectedModels.length === 0;
+                if (!modelMatch && selectedModels.length > 0) {
+                    if (selectedModels.includes(device.model)) {
+                        modelMatch = true;
+                    }
+                    
+                    if (!modelMatch && device.deviceName && selectedModels.includes(device.deviceName)) {
+                        modelMatch = true;
+                    }
+                    
+                    if (!modelMatch && device.deviceModel && typeof device.deviceModel === 'object') {
+                        Object.values(device.deviceModel).forEach(channelModel => {
+                            if (channelModel && selectedModels.includes(channelModel.trim())) {
+                                modelMatch = true;
+                            }
+                        });
+                    }
+                }
 
                 if (areaMatch && locationMatch && macMatch && modelMatch) {
                     selectedDevices.add(device.mac_id);
@@ -977,6 +1166,103 @@
             });
 
             updateSelectedCount();
+        }
+
+        // 根據選擇的廠區更新設備位置選項
+        function updateLocationsByAreas(selectedAreas) {
+            const locationContainer = document.getElementById('locationList');
+            const selectAllLocations = document.getElementById('selectAllLocations');
+            
+            if (selectedAreas.length === 0) {
+                locationContainer.innerHTML = '<div class="text-muted small">請先選擇廠區</div>';
+                selectAllLocations.disabled = true;
+                return;
+            }
+
+            // 根據選擇的廠區篩選位置
+            const filteredDevices = deviceData.filter(device => selectedAreas.includes(device.area));
+            const locations = [...new Set(filteredDevices.map(d => d.location))].sort();
+            
+            if (locations.length > 0) {
+                updateCheckboxList('locationList', locations, 'location');
+                selectAllLocations.disabled = false;
+            } else {
+                locationContainer.innerHTML = '<div class="text-muted small">所選廠區無可用位置</div>';
+                selectAllLocations.disabled = true;
+            }
+        }
+
+        // 根據選擇的廠區和位置更新 MAC ID 選項
+        function updateMacsByLocations(selectedAreas, selectedLocations) {
+            const macContainer = document.getElementById('macList');
+            const selectAllMacs = document.getElementById('selectAllMacs');
+            
+            if (selectedAreas.length === 0 || selectedLocations.length === 0) {
+                macContainer.innerHTML = '<div class="text-muted small">請先選擇設備位置</div>';
+                selectAllMacs.disabled = true;
+                return;
+            }
+
+            // 根據選擇的廠區和位置篩選 MAC ID
+            const filteredDevices = deviceData.filter(device => 
+                selectedAreas.includes(device.area) && selectedLocations.includes(device.location)
+            );
+            const macIds = [...new Set(filteredDevices.map(d => d.mac_id))].sort();
+            
+            if (macIds.length > 0) {
+                updateCheckboxList('macList', macIds, 'mac');
+                selectAllMacs.disabled = false;
+            } else {
+                macContainer.innerHTML = '<div class="text-muted small">所選位置無可用設備</div>';
+                selectAllMacs.disabled = true;
+            }
+        }
+
+        // 根據選擇的廠區、位置和 MAC ID 更新設備型號選項
+        function updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs) {
+            const modelContainer = document.getElementById('modelList');
+            const selectAllModels = document.getElementById('selectAllModels');
+            
+            if (selectedAreas.length === 0 || selectedLocations.length === 0 || selectedMacs.length === 0) {
+                modelContainer.innerHTML = '<div class="text-muted small">請先選擇 MAC ID</div>';
+                selectAllModels.disabled = true;
+                return;
+            }
+
+            // 根據選擇的廠區、位置和 MAC ID 篩選設備型號
+            const filteredDevices = deviceData.filter(device => 
+                selectedAreas.includes(device.area) && 
+                selectedLocations.includes(device.location) && 
+                selectedMacs.includes(device.mac_id)
+            );
+            
+            // 處理設備型號 - 展開所有頻道的型號
+            const allModels = new Set();
+            filteredDevices.forEach(device => {
+                if (device.deviceModel && typeof device.deviceModel === 'object') {
+                    Object.values(device.deviceModel).forEach(model => {
+                        if (model && model.trim()) {
+                            allModels.add(model.trim());
+                        }
+                    });
+                } else if (device.model && device.model !== '未知型號') {
+                    allModels.add(device.model);
+                }
+                
+                if (device.deviceName && device.deviceName !== '未知設備' && device.deviceName !== device.model) {
+                    allModels.add(device.deviceName);
+                }
+            });
+            
+            const models = [...allModels].sort();
+            
+            if (models.length > 0) {
+                updateCheckboxList('modelList', models, 'model');
+                selectAllModels.disabled = false;
+            } else {
+                modelContainer.innerHTML = '<div class="text-muted small">所選設備無可用型號</div>';
+                selectAllModels.disabled = true;
+            }
         }
 
         // 獲取選中的值
@@ -1019,23 +1305,34 @@
                 cb.checked = selectAll.checked;
             });
 
-            updateDeviceSelection();
+            // 特別處理廠區選擇，因為它會影響其他選項
+            if (containerId === 'areaList') {
+                // 廠區選擇變化時，需要重新載入其他選項
+                setTimeout(() => {
+                    updateDeviceSelection();
+                }, 50);
+            } else {
+                updateDeviceSelection();
+            }
         }
 
         // 清除所有選擇
         function clearAllSelections() {
+            // 清除所有全選按鈕
             ['selectAllAreas', 'selectAllLocations', 'selectAllMacs', 'selectAllModels'].forEach(id => {
                 document.getElementById(id).checked = false;
             });
 
+            // 清除所有選項
             ['areaList', 'locationList', 'macList', 'modelList'].forEach(containerId => {
                 const container = document.getElementById(containerId);
                 const checkboxes = container.querySelectorAll('input[type="checkbox"]');
                 checkboxes.forEach(cb => cb.checked = false);
             });
 
+            // 重置為初始狀態
             selectedDevices.clear();
-            updateSelectedCount();
+            updateSelectionLists();
         }
 
         // 產生圖表
@@ -1073,19 +1370,50 @@
                             // 獲取設備的電流數據
                             const chartData = await getDeviceChartData(macId);
 
+                            // 準備顯示的設備名稱和描述
+                            const displayName = device.deviceName || device.model || '未知設備';
+                            
+                            // 處理設備型號顯示 - 顯示所有相關型號
+                            let displayModel = '';
+                            if (device.deviceModel && typeof device.deviceModel === 'object') {
+                                // 如果有頻道型號，顯示所有不重複的型號
+                                const channelModels = Object.values(device.deviceModel)
+                                    .filter(model => model && model.trim() && model !== displayName)
+                                    .map(model => model.trim());
+                                const uniqueModels = [...new Set(channelModels)];
+                                if (uniqueModels.length > 0) {
+                                    displayModel = uniqueModels.join(', ');
+                                }
+                            } else if (device.model && device.model !== displayName && device.model !== '未知型號') {
+                                displayModel = device.model;
+                            }
+                            
+                            const displayLocation = device.location || '未知位置';
+                            const dataSource = device.source === 'settings' ? '設定檔' : 
+                                             device.source === 'both' ? '即時+設定' : 
+                                             device.source === 'uart' ? '即時數據' : '未知來源';
+
                             colDiv.innerHTML = `
                                 <div class="card h-100">
                                     <div class="card-header p-2">
-                                        <h6 class="mb-0 text-truncate" title="${device.area} - ${device.location}">
-                                            ${device.area}
+                                        <h6 class="mb-0 text-truncate" title="${device.area} - ${displayLocation}">
+                                            ${displayName}
                                         </h6>
                                         <small class="text-muted">${macId}</small>
+                                        <div class="mt-1">
+                                            <span class="badge badge-sm ${device.source === 'settings' ? 'bg-info' : 
+                                                                        device.source === 'both' ? 'bg-success' : 
+                                                                        'bg-secondary'}" 
+                                                  style="font-size: 0.7rem;">${dataSource}</span>
+                                        </div>
                                     </div>
                                     <div class="card-body p-2">
                                         <canvas id="chart_${macId.replace(/:/g, '_')}" width="200" height="150"></canvas>
                                         <div class="mt-1">
-                                            <small class="text-muted">${device.model}</small><br>
+                                            <small class="text-muted">${displayLocation}</small><br>
+                                            ${displayModel ? `<small class="text-primary" title="設備型號: ${displayModel}">型號: ${displayModel.length > 15 ? displayModel.substring(0, 15) + '...' : displayModel}</small><br>` : ''}
                                             <small class="fw-bold">目前: ${device.current.toFixed(2)}A</small>
+                                            ${device.deviceDescription ? `<br><small class="text-info" title="${device.deviceDescription}">📋 ${device.deviceDescription.substring(0, 20)}${device.deviceDescription.length > 20 ? '...' : ''}</small>` : ''}
                                         </div>
                                     </div>
                                 </div>
