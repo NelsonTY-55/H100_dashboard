@@ -320,7 +320,7 @@ def wifi_setting():
     logging.info(f'訪問 WiFi 設定頁面, remote_addr={request.remote_addr}')
     return render_template('wifi.html')
 
-@app.route('/api/wifi/scan', methods=['POST'])
+@app.route('/api/wifi/scan', methods=['GET','POST'])
 def api_wifi_scan():
     """API: 掃描 WiFi 網路"""
     try:

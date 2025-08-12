@@ -264,12 +264,7 @@
             scanBtn.disabled = true;
             scanBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>掃描中...';
 
-            fetch('/api/wifi/scan', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                }
-            })
+            fetch('/api/wifi/scan')
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
