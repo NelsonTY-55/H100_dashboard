@@ -728,23 +728,52 @@ class NetworkChecker:
                 current_wifi = {}
                 # 確保 stdout 不為 None
                 stdout_content = result.stdout or ""
-                for line in stdout_content.split('\n'):
-                    line = line.strip()
-                    if 'SSID' in line and ':' in line:
-                        ssid_match = re.search(r': (.+)$', line)
-                        if ssid_match:
-                            current_wifi['ssid'] = ssid_match.group(1).strip()
-                    elif '信號' in line or 'Signal' in line:
-                        signal_match = re.search(r': (\d+)%', line)
-                        if signal_match:
-                            current_wifi['signal'] = signal_match.group(1) + '%'
-                    elif '驗證' in line or 'Authentication' in line:
-                        auth_match = re.search(r': (.+)$', line)
-                        if auth_match:
-                            current_wifi['security'] = auth_match.group(1).strip()
+                lines = stdout_content.split('\n')
                 
-                if 'ssid' in current_wifi:
+                # 標記是否找到連接的介面
+                interface_connected = False
+                
+                for i, line in enumerate(lines):
+                    line = line.strip()
+                    
+                    # 檢查介面狀態
+                    if ('State' in line or '狀態' in line) and ':' in line:
+                        state_match = re.search(r': (.+)$', line)
+                        if state_match:
+                            state = state_match.group(1).strip().lower()
+                            if 'connected' in state or '已連線' in state or '已連接' in state:
+                                interface_connected = True
+                    
+                    # 只在介面已連接時提取資訊
+                    if interface_connected:
+                        # 檢查SSID (支援中英文)
+                        if ('SSID' in line or 'ssid' in line) and ':' in line and 'BSSID' not in line:
+                            ssid_match = re.search(r': (.+)$', line)
+                            if ssid_match:
+                                ssid = ssid_match.group(1).strip()
+                                if ssid and ssid != '':
+                                    current_wifi['ssid'] = ssid
+                        
+                        # 檢查信號強度 (支援中英文)
+                        elif any(keyword in line for keyword in ['Signal', '信號', '訊號', 'signal']) and ':' in line:
+                            signal_match = re.search(r': (\d+)%', line)
+                            if signal_match:
+                                current_wifi['signal'] = signal_match.group(1) + '%'
+                        
+                        # 檢查安全性設定 (支援中英文)
+                        elif any(keyword in line for keyword in ['Authentication', '驗證', '認證', 'auth']) and ':' in line:
+                            auth_match = re.search(r': (.+)$', line)
+                            if auth_match:
+                                current_wifi['security'] = auth_match.group(1).strip()
+                
+                # 如果找到SSID且介面已連接，返回結果
+                if 'ssid' in current_wifi and interface_connected:
                     current_wifi['status'] = 'connected'
+                    # 設定預設值
+                    current_wifi.setdefault('signal', 'unknown')
+                    current_wifi.setdefault('security', 'unknown')
+                    
+                    self.logger.info(f"檢測到WiFi連接: {current_wifi}")
                     return current_wifi
                     
         except Exception as e:

@@ -1919,9 +1919,18 @@ def system_status():
         network_status = network_checker.get_network_status()
         offline_mode = config_manager.get('offline_mode', False)
         
+        # 獲取當前WiFi連接資訊
+        current_wifi = None
+        try:
+            current_wifi = network_checker.get_current_wifi_info()
+            logging.info(f"當前WiFi資訊: {current_wifi}")
+        except Exception as wifi_error:
+            logging.warning(f"獲取WiFi資訊失敗: {wifi_error}")
+        
         return jsonify({
             'success': True,
             'network_status': network_status,
+            'current_wifi': current_wifi,
             'offline_mode': offline_mode,
             'current_mode': current_mode['mode'],
             'system_info': {
@@ -1934,6 +1943,7 @@ def system_status():
             'success': False, 
             'message': f'獲取系統狀態失敗: {str(e)}',
             'offline_mode': True,
+            'current_wifi': None,
             'network_status': {
                 'internet_available': False,
                 'local_network_available': False,

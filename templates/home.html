@@ -287,10 +287,13 @@
                         <!-- 當前連接狀態 -->
                         <div class="mb-3">
                             <label class="form-label text-muted">當前WiFi連接：</label>
-                            <div>
+                            <div class="d-flex align-items-center gap-2">
                                 <span class="badge fs-6 px-3 py-2 bg-success" id="currentWifiBadge">
-                                    <i class="fas fa-wifi me-2"></i>已連接網路
+                                    <i class="fas fa-wifi me-2"></i>檢查中...
                                 </span>
+                                <button class="btn btn-outline-info btn-sm" onclick="updateCurrentWifiStatus()" title="刷新WiFi狀態">
+                                    <i class="fas fa-sync-alt"></i>
+                                </button>
                             </div>
                         </div>
                         
@@ -909,6 +912,7 @@
             // 設定定期更新
             setInterval(fetchMode, 3000);
             setInterval(updateNetworkStatus, 5000);
+            setInterval(updateCurrentWifiStatus, 10000); // 每10秒更新WiFi狀態
         });
         
         // 網路狀態檢查和離線模式管理
@@ -916,8 +920,8 @@
             fetch('/api/system/status')
             .then(response => response.json())
             .then(data => {
-                // 更新當前WiFi狀態
-                updateCurrentWifiStatus(); // 啟用自動WiFi檢查
+                // 系統狀態已在updateCurrentWifiStatus中處理
+                console.log('系統狀態檢查完成');
             })
             .catch(error => {
                 console.error('系統狀態檢查失敗:', error);
@@ -958,16 +962,47 @@
         function initializeWifiStatus() {
             const badge = document.getElementById('currentWifiBadge');
             
-            // 保持 HTML 初始狀態，不自動更新為具體網路名稱
-            badge.className = 'badge fs-6 px-3 py-2 bg-success';
-            badge.innerHTML = '<i class="fas fa-wifi me-2"></i>已連接網路';
+            // 初始化時獲取當前WiFi狀態
+            updateCurrentWifiStatus();
         }
         
         function updateCurrentWifiStatus() {
-            // 保持顯示「已連接網路」，不更新為具體網路名稱
             const badge = document.getElementById('currentWifiBadge');
-            badge.className = 'badge fs-6 px-3 py-2 bg-success';
-            badge.innerHTML = '<i class="fas fa-wifi me-2"></i>已連接網路';
+            
+            // 獲取系統狀態，包括WiFi資訊
+            fetch('/api/system/status')
+            .then(response => response.json())
+            .then(data => {
+                if (data.success && data.current_wifi && data.current_wifi.ssid) {
+                    // 有連接到WiFi網路
+                    const ssid = data.current_wifi.ssid;
+                    const signal = data.current_wifi.signal || '';
+                    const signalText = signal ? ` (${signal})` : '';
+                    
+                    badge.className = 'badge fs-6 px-3 py-2 bg-success';
+                    badge.innerHTML = `<i class="fas fa-wifi me-2"></i>已連接: ${ssid}${signalText}`;
+                    
+                    console.log(`WiFi狀態更新: 已連接到 ${ssid}${signalText}`);
+                } else if (data.success && data.network_status && data.network_status.internet_available) {
+                    // 有網路連接但非WiFi（可能是有線網路）
+                    badge.className = 'badge fs-6 px-3 py-2 bg-info';
+                    badge.innerHTML = '<i class="fas fa-ethernet me-2"></i>已連接網路 (有線)';
+                    
+                    console.log('WiFi狀態更新: 有線網路連接');
+                } else {
+                    // 未連接到網路
+                    badge.className = 'badge fs-6 px-3 py-2 bg-secondary';
+                    badge.innerHTML = '<i class="fas fa-wifi-slash me-2"></i>未連接到網路';
+                    
+                    console.log('WiFi狀態更新: 未連接到網路');
+                }
+            })
+            .catch(error => {
+                console.error('獲取WiFi狀態失敗:', error);
+                // 發生錯誤時顯示未知狀態
+                badge.className = 'badge fs-6 px-3 py-2 bg-warning';
+                badge.innerHTML = '<i class="fas fa-question me-2"></i>網路狀態未知';
+            });
         }
         
         function scanWifiNetworks() {
@@ -1127,15 +1162,9 @@
                     
                     // 立即更新當前WiFi顯示
                     const badge = document.getElementById('currentWifiBadge');
-                    const details = document.getElementById('wifiDetails');
                     
                     badge.className = 'badge fs-6 px-3 py-2 bg-success';
-                    badge.innerHTML = `<i class="fas fa-wifi me-2"></i>已連接網路`;
-                    
-                    if (details) {
-                        details.innerHTML = `<i class="fas fa-check-circle me-1"></i>已成功連接到網路`;
-                        details.className = 'text-success';
-                    }
+                    badge.innerHTML = `<i class="fas fa-wifi me-2"></i>已連接: ${ssid}`;
                     
                     // 清空選擇和密碼
                     wifiSelect.value = '';
@@ -1144,7 +1173,7 @@
                     // 延遲更新完整的WiFi狀態資訊
                     setTimeout(() => {
                         updateCurrentWifiStatus();
-                    }, 5000);
+                    }, 3000);
                 } else {
                     showAlert(data.message, 'danger');
                 }
