@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WiFi 設定 - UART 監控系統</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .navbar {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .wifi-card {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 1rem;
+            transition: all 0.3s ease;
+        }
+        .wifi-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 15px 40px rgba(0,0,0,0.15);
+        }
+        .wifi-network-item {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border-radius: 10px;
+            margin-bottom: 0.5rem;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        .wifi-network-item:hover {
+            background-color: #f8f9fa;
+            border-color: #e9ecef;
+        }
+        .wifi-network-item.selected {
+            background-color: #e3f2fd;
+            border-color: #2196f3;
+        }
+        .wifi-icon {
+            font-size: 1.5rem;
+            margin-right: 1rem;
+            width: 40px;
+            text-align: center;
+        }
+        .wifi-info {
+            flex: 1;
+        }
+        .wifi-name {
+            font-weight: 600;
+            margin-bottom: 0.25rem;
+        }
+        .wifi-details {
+            font-size: 0.85rem;
+            color: #6c757d;
+        }
+        .signal-strength {
+            display: flex;
+            align-items: center;
+            margin-left: 1rem;
+        }
+        .signal-bar {
+            width: 4px;
+            margin-right: 2px;
+            background-color: #ddd;
+            border-radius: 2px;
+        }
+        .signal-bar.active {
+            background-color: #28a745;
+        }
+        .password-modal .modal-dialog {
+            max-width: 400px;
+        }
+        .hero-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 2rem 0;
+        }
+    </style>
+</head>
+<body>
+    <!-- 導航欄 -->
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container">
+            <a class="navbar-brand fw-bold" href="/">
+                <i class="fas fa-microchip me-2"></i>
+                UART 監控系統
+            </a>
+            <div class="navbar-nav ms-auto">
+                <a class="nav-link" href="/" onclick="goBack()">
+                    <i class="fas fa-arrow-left me-2"></i>
+                    返回主頁
+                </a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 標題區域 -->
+    <div class="hero-section" style="margin-top: 70px;">
+        <div class="container">
+            <div class="row">
+                <div class="col-12 text-center">
+                    <h1 class="display-5 fw-bold mb-3">
+                        <i class="fas fa-wifi me-3"></i>
+                        WiFi 網路設定
+                    </h1>
+                    <p class="lead">選擇要連接的 WiFi 網路</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WiFi 設定內容 -->
+    <div class="container mt-4">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <!-- 掃描按鈕 -->
+                <div class="card wifi-card mb-4">
+                    <div class="card-body text-center">
+                        <button class="btn btn-primary btn-lg" onclick="scanWifi()" id="scanBtn">
+                            <i class="fas fa-search me-2"></i>
+                            掃描 WiFi 網路
+                        </button>
+                        <div class="mt-3">
+                            <small class="text-muted">點擊掃描按鈕來搜尋可用的 WiFi 網路</small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 目前連接狀態 -->
+                <div class="card wifi-card mb-4" id="currentConnectionCard">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-link me-2"></i>
+                            目前連接狀態
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="d-flex align-items-center">
+                            <div class="wifi-icon text-success">
+                                <i class="fas fa-wifi"></i>
+                            </div>
+                            <div class="wifi-info">
+                                <div class="wifi-name" id="currentWifiName">尚未連接</div>
+                                <div class="wifi-details" id="currentWifiDetails">請選擇要連接的 WiFi 網路</div>
+                            </div>
+                            <span class="badge bg-secondary" id="connectionStatus">未連接</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WiFi 網路列表 -->
+                <div class="card wifi-card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-list me-2"></i>
+                            可用的 WiFi 網路
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="wifiList">
+                            <div class="text-center text-muted py-5">
+                                <i class="fas fa-search fa-2x mb-3"></i>
+                                <p>點擊上方的掃描按鈕來搜尋 WiFi 網路</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 密碼輸入模態框 -->
+    <div class="modal fade password-modal" id="passwordModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="fas fa-key me-2"></i>
+                        連接到 <span id="selectedWifiName"></span>
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="wifiPasswordForm">
+                        <div class="mb-3">
+                            <label for="wifiPassword" class="form-label">WiFi 密碼</label>
+                            <div class="input-group">
+                                <input type="password" class="form-control" id="wifiPassword" placeholder="請輸入 WiFi 密碼" required>
+                                <button type="button" class="btn btn-outline-secondary" onclick="togglePasswordVisibility()">
+                                    <i class="fas fa-eye" id="passwordToggleIcon"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="showPassword">
+                            <label class="form-check-label" for="showPassword">
+                                顯示密碼
+                            </label>
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-wifi me-2"></i>
+                                連接
+                            </button>
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                                取消
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading 模態框 -->
+    <div class="modal fade" id="loadingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-body text-center py-4">
+                    <div class="spinner-border text-primary mb-3" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <h5 id="loadingText">正在掃描 WiFi 網路...</h5>
+                    <p class="text-muted mb-0" id="loadingSubtext">請稍候</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let selectedWifi = null;
+        let loadingModal = null;
+        let passwordModal = null;
+
+        document.addEventListener('DOMContentLoaded', function() {
+            loadingModal = new bootstrap.Modal(document.getElementById('loadingModal'));
+            passwordModal = new bootstrap.Modal(document.getElementById('passwordModal'));
+            
+            // 載入當前連接狀態
+            loadCurrentConnection();
+        });
+
+        function goBack() {
+            window.location.href = '/';
+        }
+
+        function scanWifi() {
+            const scanBtn = document.getElementById('scanBtn');
+            const loadingText = document.getElementById('loadingText');
+            const loadingSubtext = document.getElementById('loadingSubtext');
+            
+            // 顯示載入中
+            loadingText.textContent = '正在掃描 WiFi 網路...';
+            loadingSubtext.textContent = '請稍候，這可能需要幾秒鐘';
+            loadingModal.show();
+            
+            // 禁用掃描按鈕
+            scanBtn.disabled = true;
+            scanBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>掃描中...';
+
+            fetch('/api/wifi/scan', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    displayWifiNetworks(data.networks);
+                } else {
+                    showError('掃描失敗: ' + (data.error || '未知錯誤'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showError('網路錯誤，請檢查連接');
+            })
+            .finally(() => {
+                // 隱藏載入中
+                loadingModal.hide();
+                
+                // 恢復掃描按鈕
+                scanBtn.disabled = false;
+                scanBtn.innerHTML = '<i class="fas fa-search me-2"></i>重新掃描';
+            });
+        }
+
+        function displayWifiNetworks(networks) {
+            const wifiList = document.getElementById('wifiList');
+            
+            if (!networks || networks.length === 0) {
+                wifiList.innerHTML = `
+                    <div class="text-center text-muted py-5">
+                        <i class="fas fa-exclamation-triangle fa-2x mb-3"></i>
+                        <p>未找到可用的 WiFi 網路</p>
+                        <button class="btn btn-outline-primary" onclick="scanWifi()">重新掃描</button>
+                    </div>
+                `;
+                return;
+            }
+
+            wifiList.innerHTML = networks.map(network => `
+                <div class="wifi-network-item" onclick="selectWifi('${network.ssid}', ${network.encrypted})">
+                    <div class="wifi-icon ${getWifiIconColor(network.signal)}">
+                        <i class="fas fa-wifi"></i>
+                    </div>
+                    <div class="wifi-info">
+                        <div class="wifi-name">${network.ssid}</div>
+                        <div class="wifi-details">
+                            ${network.encrypted ? '<i class="fas fa-lock me-1"></i>已加密' : '<i class="fas fa-unlock me-1"></i>開放網路'}
+                            · 信號強度: ${network.signal}%
+                        </div>
+                    </div>
+                    <div class="signal-strength">
+                        ${generateSignalBars(network.signal)}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function getWifiIconColor(signal) {
+            if (signal >= 75) return 'text-success';
+            if (signal >= 50) return 'text-warning';
+            return 'text-danger';
+        }
+
+        function generateSignalBars(signal) {
+            const bars = 4;
+            const activeBars = Math.ceil((signal / 100) * bars);
+            let html = '';
+            
+            for (let i = 1; i <= bars; i++) {
+                const height = i * 6 + 6; // 12px, 18px, 24px, 30px
+                const isActive = i <= activeBars ? 'active' : '';
+                html += `<div class="signal-bar ${isActive}" style="height: ${height}px;"></div>`;
+            }
+            
+            return html;
+        }
+
+        function selectWifi(ssid, encrypted) {
+            // 移除之前的選中狀態
+            document.querySelectorAll('.wifi-network-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            
+            // 添加選中狀態
+            event.currentTarget.classList.add('selected');
+            
+            selectedWifi = { ssid, encrypted };
+            
+            if (encrypted) {
+                // 需要密碼
+                document.getElementById('selectedWifiName').textContent = ssid;
+                document.getElementById('wifiPassword').value = '';
+                passwordModal.show();
+            } else {
+                // 開放網路，直接連接
+                connectToWifi(ssid, '');
+            }
+        }
+
+        function connectToWifi(ssid, password) {
+            const loadingText = document.getElementById('loadingText');
+            const loadingSubtext = document.getElementById('loadingSubtext');
+            
+            loadingText.textContent = `正在連接到 ${ssid}...`;
+            loadingSubtext.textContent = '請稍候，這可能需要一些時間';
+            loadingModal.show();
+
+            fetch('/api/wifi/connect', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    ssid: ssid,
+                    password: password
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    showSuccess(`成功連接到 ${ssid}`);
+                    loadCurrentConnection();
+                    // 隱藏密碼模態框
+                    passwordModal.hide();
+                } else {
+                    showError('連接失敗: ' + (data.error || '未知錯誤'));
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                showError('網路錯誤，請檢查連接');
+            })
+            .finally(() => {
+                loadingModal.hide();
+            });
+        }
+
+        function loadCurrentConnection() {
+            fetch('/api/wifi/status')
+            .then(response => response.json())
+            .then(data => {
+                const nameEl = document.getElementById('currentWifiName');
+                const detailsEl = document.getElementById('currentWifiDetails');
+                const statusEl = document.getElementById('connectionStatus');
+                
+                if (data.connected && data.ssid) {
+                    nameEl.textContent = data.ssid;
+                    detailsEl.textContent = `IP: ${data.ip || '取得中...'} · 信號: ${data.signal || 'N/A'}%`;
+                    statusEl.textContent = '已連接';
+                    statusEl.className = 'badge bg-success';
+                } else {
+                    nameEl.textContent = '尚未連接';
+                    detailsEl.textContent = '請選擇要連接的 WiFi 網路';
+                    statusEl.textContent = '未連接';
+                    statusEl.className = 'badge bg-secondary';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading connection status:', error);
+            });
+        }
+
+        function togglePasswordVisibility() {
+            const passwordInput = document.getElementById('wifiPassword');
+            const toggleIcon = document.getElementById('passwordToggleIcon');
+            
+            if (passwordInput.type === 'password') {
+                passwordInput.type = 'text';
+                toggleIcon.className = 'fas fa-eye-slash';
+            } else {
+                passwordInput.type = 'password';
+                toggleIcon.className = 'fas fa-eye';
+            }
+        }
+
+        // 密碼表單提交
+        document.getElementById('wifiPasswordForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            const password = document.getElementById('wifiPassword').value;
+            if (selectedWifi) {
+                connectToWifi(selectedWifi.ssid, password);
+            }
+        });
+
+        // 顯示密碼複選框
+        document.getElementById('showPassword').addEventListener('change', function() {
+            const passwordInput = document.getElementById('wifiPassword');
+            passwordInput.type = this.checked ? 'text' : 'password';
+        });
+
+        function showSuccess(message) {
+            // 這裡可以使用 toast 或其他通知方式
+            alert('成功: ' + message);
+        }
+
+        function showError(message) {
+            // 這裡可以使用 toast 或其他通知方式
+            alert('錯誤: ' + message);
+        }
+    </script>
+</body>
+</html>
