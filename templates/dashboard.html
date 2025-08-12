@@ -878,7 +878,7 @@
                             <div>
                                 <span class="text-muted me-3">已選擇: <span id="selectedCount">0</span> 個設備</span>
                                 <button class="btn btn-primary btn-lg" onclick="generateCharts()" id="generateBtn" disabled>
-                                    <i class="fas fa-chart-area me-2"></i>產生電流圖表
+                                    <i class="fas fa-chart-area me-2"></i>產生型號電流圖表
                                 </button>
                             </div>
                         </div>
@@ -901,7 +901,20 @@
         // 頁面載入時初始化
         document.addEventListener('DOMContentLoaded', function() {
             refreshDeviceData();
+            updateCurrentTime();
+            
+            // 每秒更新時間
+            setInterval(updateCurrentTime, 1000);
         });
+
+        // 更新當前時間
+        function updateCurrentTime() {
+            const timeElement = document.getElementById('current-time');
+            if (timeElement) {
+                const now = new Date();
+                timeElement.textContent = now.toLocaleString('zh-TW');
+            }
+        }
 
         // 重新載入設備資料
         async function refreshDeviceData() {
@@ -909,100 +922,127 @@
                 // 顯示載入狀態
                 showLoading('正在載入設備資料...');
 
-                // 同時從多個 API 獲取資料
-                const [macResponse, deviceResponse, multiDeviceResponse] = await Promise.all([
-                    fetch('/api/uart/mac-ids'),
-                    fetch('/api/dashboard/devices').catch(() => null),
-                    fetch('/api/multi-device-settings').catch(() => null)
+                // 同時從多個 API 獲取資料，但容錯處理
+                const [macResponse, deviceResponse, multiDeviceResponse] = await Promise.allSettled([
+                    fetch('/api/uart/mac-ids').catch(err => {
+                        console.warn('UART MAC API 請求失敗:', err);
+                        return null;
+                    }),
+                    fetch('/api/dashboard/devices').catch(err => {
+                        console.warn('Dashboard devices API 請求失敗:', err);
+                        return null;
+                    }),
+                    fetch('/api/multi-device-settings').catch(err => {
+                        console.warn('Multi-device settings API 請求失敗:', err);
+                        return null;
+                    })
                 ]);
 
                 let devices = [];
 
                 // 處理 UART MAC ID 資料
-                if (macResponse.ok) {
-                    const macData = await macResponse.json();
-                    console.log('UART MAC API 回應:', macData);
-                    if (macData.success && macData.mac_ids) {
-                        devices = macData.mac_ids.map(macId => ({
-                            area: '未分類廠區',
-                            location: '未知位置',
-                            mac_id: macId,
-                            model: '未知型號',
-                            current: 0,
-                            channels: [],
-                            source: 'uart'
-                        }));
+                if (macResponse.status === 'fulfilled' && macResponse.value && macResponse.value.ok) {
+                    try {
+                        const macData = await macResponse.value.json();
+                        console.log('UART MAC API 回應:', macData);
+                        if (macData.success && macData.mac_ids) {
+                            devices = macData.mac_ids.map(macId => ({
+                                area: '未分類廠區',
+                                location: '未知位置',
+                                mac_id: macId,
+                                model: '未知型號',
+                                current: 0,
+                                channels: [],
+                                source: 'uart'
+                            }));
+                        }
+                    } catch (error) {
+                        console.warn('解析 UART MAC API 回應失敗:', error);
                     }
                 }
 
                 // 處理多設備設定資料
-                if (multiDeviceResponse && multiDeviceResponse.ok) {
-                    const multiDeviceData = await multiDeviceResponse.json();
-                    console.log('多設備設定 API 回應:', multiDeviceData);
-                    if (multiDeviceData.success && multiDeviceData.devices) {
-                        // 從 multi_device_settings.json 載入的設備
-                        Object.keys(multiDeviceData.devices).forEach(macId => {
-                            const setting = multiDeviceData.devices[macId];
-                            console.log(`處理設備 ${macId}:`, setting);
+                if (multiDeviceResponse.status === 'fulfilled' && multiDeviceResponse.value && multiDeviceResponse.value.ok) {
+                    try {
+                        const multiDeviceData = await multiDeviceResponse.value.json();
+                        console.log('多設備設定 API 回應:', multiDeviceData);
+                        if (multiDeviceData.success && multiDeviceData.devices) {
+                            // 從 multi_device_settings.json 載入的設備
+                            Object.keys(multiDeviceData.devices).forEach(macId => {
+                                const setting = multiDeviceData.devices[macId];
+                                console.log(`處理設備 ${macId}:`, setting);
                             
-                            // 檢查是否已經存在（來自UART數據）
-                            const existingIndex = devices.findIndex(d => d.mac_id === macId);
-                            
-                            // 處理設備型號 - 可能是字串或物件
-                            let deviceModel = '未知型號';
-                            if (setting.device_model) {
-                                if (typeof setting.device_model === 'object') {
-                                    // 如果是物件，取第一個有值的頻道型號
-                                    const modelValues = Object.values(setting.device_model).filter(v => v && v.trim());
-                                    deviceModel = modelValues.length > 0 ? modelValues[0] : '未知型號';
-                                } else {
-                                    deviceModel = setting.device_model;
+                                // 檢查是否已經存在（來自UART數據）
+                                const existingIndex = devices.findIndex(d => d.mac_id === macId);
+                                
+                                // 處理設備型號 - 可能是字串或物件
+                                let deviceModel = '未知型號';
+                                if (setting.device_model) {
+                                    if (typeof setting.device_model === 'object') {
+                                        // 如果是物件，取第一個有值的頻道型號
+                                        const modelValues = Object.values(setting.device_model).filter(v => v && v.trim());
+                                        deviceModel = modelValues.length > 0 ? modelValues[0] : '未知型號';
+                                    } else {
+                                        deviceModel = setting.device_model;
+                                    }
+                                } else if (setting.device_name) {
+                                    deviceModel = setting.device_name;
                                 }
-                            } else if (setting.device_name) {
-                                deviceModel = setting.device_name;
-                            }
-                            
-                            const deviceInfo = {
-                                area: setting.device_location || '未分類廠區',
-                                location: setting.device_location || '未知位置',
-                                mac_id: macId,
-                                model: deviceModel,
-                                current: 0, // 預設值，實際值會從其他API獲取
-                                channels: [],
-                                source: 'settings',
-                                deviceName: setting.device_name,
-                                deviceDescription: setting.device_description,
-                                deviceModel: setting.device_model
-                            };
-
-                            if (existingIndex >= 0) {
-                                // 更新現有設備的資訊
-                                devices[existingIndex] = {
-                                    ...devices[existingIndex],
-                                    ...deviceInfo,
-                                    source: 'both' // 同時存在於UART和設定中
+                                
+                                const deviceInfo = {
+                                    area: setting.device_name || '未分類廠區',        // 廠區對應到 device_name
+                                    location: setting.device_location || '未知位置',   // 設備位置對應到 device_location
+                                    mac_id: macId,
+                                    model: deviceModel,
+                                    current: 0, // 預設值，實際值會從其他API獲取
+                                    channels: [],
+                                    source: 'settings',
+                                    deviceName: setting.device_name,
+                                    deviceDescription: setting.device_description,
+                                    deviceModel: setting.device_model
                                 };
-                                console.log(`更新現有設備 ${macId}`);
-                            } else {
-                                // 新增設備
-                                devices.push(deviceInfo);
-                                console.log(`新增設備 ${macId}`);
-                            }
-                        });
+
+                                if (existingIndex >= 0) {
+                                    // 更新現有設備的資訊
+                                    devices[existingIndex] = {
+                                        ...devices[existingIndex],
+                                        ...deviceInfo,
+                                        source: 'both' // 同時存在於UART和設定中
+                                    };
+                                    console.log(`更新現有設備 ${macId}`);
+                                } else {
+                                    // 新增設備
+                                    devices.push(deviceInfo);
+                                    console.log(`新增設備 ${macId}`);
+                                }
+                            });
+                        }
+                    } catch (error) {
+                        console.warn('解析多設備設定 API 回應失敗:', error);
                     }
                 }
 
                 // 處理設備列表資料（如果可用）
-                if (deviceResponse && deviceResponse.ok) {
-                    const deviceListData = await deviceResponse.json();
-                    // 合併或補充設備資料
-                    if (deviceListData.devices) {
-                        // 這裡可以合併額外的設備資訊
+                if (deviceResponse.status === 'fulfilled' && deviceResponse.value && deviceResponse.value.ok) {
+                    try {
+                        const deviceListData = await deviceResponse.value.json();
+                        // 合併或補充設備資料
+                        if (deviceListData.devices) {
+                            // 這裡可以合併額外的設備資訊
+                        }
+                    } catch (error) {
+                        console.warn('解析設備列表 API 回應失敗:', error);
                     }
                 }
 
                 deviceData = devices;
                 console.log('載入的設備資料:', deviceData);
+                
+                // 如果沒有任何設備資料，顯示提示
+                if (devices.length === 0) {
+                    console.warn('未能載入任何設備資料');
+                }
+                
                 updateSelectionLists();
                 hideLoading();
 
@@ -1111,7 +1151,7 @@
                 
                 div.innerHTML = `
                     <input class="form-check-input" type="checkbox" id="${type}_${item.replace(/[^a-zA-Z0-9]/g, '_')}" 
-                           value="${item}" onchange="updateDeviceSelection()">
+                           value="${item}" onchange="updateDeviceSelectionByType('${type}')">
                     <label class="form-check-label" for="${type}_${item.replace(/[^a-zA-Z0-9]/g, '_')}" title="${titleText}">
                         ${labelText}
                     </label>
@@ -1121,16 +1161,83 @@
         }
 
         // 更新設備選擇
-        function updateDeviceSelection() {
+        function updateDeviceSelection(skipCascadeUpdate = false) {
             const selectedAreas = getSelectedValues('areaList');
             const selectedLocations = getSelectedValues('locationList');
             const selectedMacs = getSelectedValues('macList');
             const selectedModels = getSelectedValues('modelList');
 
-            // 階層式更新選項
-            updateLocationsByAreas(selectedAreas);
-            updateMacsByLocations(selectedAreas, selectedLocations);
-            updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs);
+            // 階層式更新選項，但避免不必要的更新
+            if (!skipCascadeUpdate) {
+                updateLocationsByAreas(selectedAreas);
+                updateMacsByLocations(selectedAreas, selectedLocations);
+                updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs);
+            }
+
+            // 更新最終選擇的設備
+            selectedDevices.clear();
+
+            deviceData.forEach(device => {
+                const areaMatch = selectedAreas.length === 0 || selectedAreas.includes(device.area);
+                const locationMatch = selectedLocations.length === 0 || selectedLocations.includes(device.location);
+                const macMatch = selectedMacs.length === 0 || selectedMacs.includes(device.mac_id);
+                
+                // 檢查型號匹配
+                let modelMatch = selectedModels.length === 0;
+                if (!modelMatch && selectedModels.length > 0) {
+                    if (selectedModels.includes(device.model)) {
+                        modelMatch = true;
+                    }
+                    
+                    if (!modelMatch && device.deviceName && selectedModels.includes(device.deviceName)) {
+                        modelMatch = true;
+                    }
+                    
+                    if (!modelMatch && device.deviceModel && typeof device.deviceModel === 'object') {
+                        Object.values(device.deviceModel).forEach(channelModel => {
+                            if (channelModel && selectedModels.includes(channelModel.trim())) {
+                                modelMatch = true;
+                            }
+                        });
+                    }
+                }
+
+                if (areaMatch && locationMatch && macMatch && modelMatch) {
+                    selectedDevices.add(device.mac_id);
+                }
+            });
+
+            updateSelectedCount();
+        }
+
+        // 根據選擇類型來更新設備選擇
+        function updateDeviceSelectionByType(type) {
+            const selectedAreas = getSelectedValues('areaList');
+            const selectedLocations = getSelectedValues('locationList');
+            const selectedMacs = getSelectedValues('macList');
+            const selectedModels = getSelectedValues('modelList');
+
+            // 根據選擇的類型決定是否需要階層式更新
+            switch(type) {
+                case 'area':
+                    // 廠區變化時，需要更新位置、MAC ID 和型號
+                    updateLocationsByAreas(selectedAreas);
+                    updateMacsByLocations(selectedAreas, selectedLocations);
+                    updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs);
+                    break;
+                case 'location':
+                    // 位置變化時，需要更新 MAC ID 和型號
+                    updateMacsByLocations(selectedAreas, selectedLocations);
+                    updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs);
+                    break;
+                case 'mac':
+                    // MAC ID 變化時，只需要更新型號
+                    updateModelsByMacs(selectedAreas, selectedLocations, selectedMacs);
+                    break;
+                case 'model':
+                    // 型號變化時，不需要更新其他選項
+                    break;
+            }
 
             // 更新最終選擇的設備
             selectedDevices.clear();
@@ -1179,12 +1286,26 @@
                 return;
             }
 
+            // 保存當前選擇的位置
+            const currentSelectedLocations = getSelectedValues('locationList');
+
             // 根據選擇的廠區篩選位置
             const filteredDevices = deviceData.filter(device => selectedAreas.includes(device.area));
             const locations = [...new Set(filteredDevices.map(d => d.location))].sort();
             
             if (locations.length > 0) {
                 updateCheckboxList('locationList', locations, 'location');
+                
+                // 恢復之前的選擇狀態
+                currentSelectedLocations.forEach(location => {
+                    if (locations.includes(location)) {
+                        const checkbox = document.querySelector(`#locationList input[value="${location}"]`);
+                        if (checkbox) {
+                            checkbox.checked = true;
+                        }
+                    }
+                });
+                
                 selectAllLocations.disabled = false;
             } else {
                 locationContainer.innerHTML = '<div class="text-muted small">所選廠區無可用位置</div>';
@@ -1203,6 +1324,9 @@
                 return;
             }
 
+            // 保存當前選擇的 MAC ID
+            const currentSelectedMacs = getSelectedValues('macList');
+
             // 根據選擇的廠區和位置篩選 MAC ID
             const filteredDevices = deviceData.filter(device => 
                 selectedAreas.includes(device.area) && selectedLocations.includes(device.location)
@@ -1211,6 +1335,17 @@
             
             if (macIds.length > 0) {
                 updateCheckboxList('macList', macIds, 'mac');
+                
+                // 恢復之前的選擇狀態
+                currentSelectedMacs.forEach(macId => {
+                    if (macIds.includes(macId)) {
+                        const checkbox = document.querySelector(`#macList input[value="${macId}"]`);
+                        if (checkbox) {
+                            checkbox.checked = true;
+                        }
+                    }
+                });
+                
                 selectAllMacs.disabled = false;
             } else {
                 macContainer.innerHTML = '<div class="text-muted small">所選位置無可用設備</div>';
@@ -1228,6 +1363,9 @@
                 selectAllModels.disabled = true;
                 return;
             }
+
+            // 保存當前選擇的型號
+            const currentSelectedModels = getSelectedValues('modelList');
 
             // 根據選擇的廠區、位置和 MAC ID 篩選設備型號
             const filteredDevices = deviceData.filter(device => 
@@ -1258,6 +1396,17 @@
             
             if (models.length > 0) {
                 updateCheckboxList('modelList', models, 'model');
+                
+                // 恢復之前的選擇狀態
+                currentSelectedModels.forEach(model => {
+                    if (models.includes(model)) {
+                        const checkbox = document.querySelector(`#modelList input[value="${model}"]`);
+                        if (checkbox) {
+                            checkbox.checked = true;
+                        }
+                    }
+                });
+                
                 selectAllModels.disabled = false;
             } else {
                 modelContainer.innerHTML = '<div class="text-muted small">所選設備無可用型號</div>';
@@ -1309,10 +1458,14 @@
             if (containerId === 'areaList') {
                 // 廠區選擇變化時，需要重新載入其他選項
                 setTimeout(() => {
-                    updateDeviceSelection();
+                    updateDeviceSelectionByType('area');
                 }, 50);
+            } else if (containerId === 'locationList') {
+                updateDeviceSelectionByType('location');
+            } else if (containerId === 'macList') {
+                updateDeviceSelectionByType('mac');
             } else {
-                updateDeviceSelection();
+                updateDeviceSelectionByType('model');
             }
         }
 
@@ -1335,8 +1488,11 @@
             updateSelectionLists();
         }
 
-        // 產生圖表
+        // 產生圖表 - 根據設備型號分組
         async function generateCharts() {
+            console.log('開始生成圖表，選中設備數量:', selectedDevices.size);
+            console.log('選中的設備列表:', Array.from(selectedDevices));
+            
             if (selectedDevices.size === 0) {
                 alert('請至少選擇一個設備');
                 return;
@@ -1346,91 +1502,133 @@
                 showLoading('正在生成圖表...');
 
                 const container = document.getElementById('chartsContainer');
+                console.log('圖表容器元素:', container);
                 container.innerHTML = '';
 
-                // 為每個選中的設備生成圖表
+                // 根據設備型號分組選中的設備
+                const devicesByModel = new Map();
                 const selectedDeviceList = Array.from(selectedDevices);
-                const rows = Math.ceil(selectedDeviceList.length / 5); // 每行最多5個圖表
+                
+                for (const macId of selectedDeviceList) {
+                    const device = deviceData.find(d => d.mac_id === macId);
+                    if (device) {
+                        // 取得設備型號
+                        let deviceModel = '未知型號';
+                        if (device.deviceModel && typeof device.deviceModel === 'object') {
+                            // 如果有頻道型號，取第一個有效的型號
+                            const channelModels = Object.values(device.deviceModel)
+                                .filter(model => model && model.trim());
+                            if (channelModels.length > 0) {
+                                deviceModel = channelModels[0].trim();
+                            }
+                        } else if (device.model && device.model !== '未知型號') {
+                            deviceModel = device.model;
+                        } else if (device.deviceName) {
+                            deviceModel = device.deviceName;
+                        }
+                        
+                        // 按型號分組
+                        if (!devicesByModel.has(deviceModel)) {
+                            devicesByModel.set(deviceModel, []);
+                        }
+                        devicesByModel.get(deviceModel).push(device);
+                    }
+                }
+
+                console.log('設備型號分組結果:', devicesByModel);
+                console.log(`共有 ${devicesByModel.size} 個不同的設備型號`);
+
+                // 為每個設備型號生成一個圖表
+                const modelList = Array.from(devicesByModel.keys());
+                const rows = Math.ceil(modelList.length / 3); // 每行最多3個圖表（型號圖表較大）
+                console.log(`將生成 ${rows} 行圖表，每行最多3個型號圖表`);
 
                 for (let i = 0; i < rows; i++) {
                     const rowDiv = document.createElement('div');
                     rowDiv.className = 'row mb-4';
 
-                    const startIndex = i * 5;
-                    const endIndex = Math.min(startIndex + 5, selectedDeviceList.length);
+                    const startIndex = i * 3;
+                    const endIndex = Math.min(startIndex + 3, modelList.length);
+                    console.log(`處理第 ${i+1} 行，型號索引 ${startIndex} 到 ${endIndex-1}`);
 
                     for (let j = startIndex; j < endIndex; j++) {
-                        const macId = selectedDeviceList[j];
-                        const device = deviceData.find(d => d.mac_id === macId);
+                        const modelName = modelList[j];
+                        const devicesInModel = devicesByModel.get(modelName);
+                        console.log(`處理設備型號 ${modelName}，包含 ${devicesInModel.length} 個設備:`, devicesInModel.map(d => d.mac_id));
 
-                        if (device) {
-                            const colDiv = document.createElement('div');
-                            colDiv.className = 'col-lg-2 col-md-4 col-sm-6 mb-3';
+                        const colDiv = document.createElement('div');
+                        colDiv.className = 'col-lg-4 col-md-6 mb-3';
 
-                            // 獲取設備的電流數據
-                            const chartData = await getDeviceChartData(macId);
+                        // 獲取該型號下所有設備的綜合數據
+                        const combinedChartData = await getCombinedModelChartData(devicesInModel);
+                        console.log(`設備型號 ${modelName} 的綜合數據:`, combinedChartData);
 
-                            // 準備顯示的設備名稱和描述
-                            const displayName = device.deviceName || device.model || '未知設備';
-                            
-                            // 處理設備型號顯示 - 顯示所有相關型號
-                            let displayModel = '';
-                            if (device.deviceModel && typeof device.deviceModel === 'object') {
-                                // 如果有頻道型號，顯示所有不重複的型號
-                                const channelModels = Object.values(device.deviceModel)
-                                    .filter(model => model && model.trim() && model !== displayName)
-                                    .map(model => model.trim());
-                                const uniqueModels = [...new Set(channelModels)];
-                                if (uniqueModels.length > 0) {
-                                    displayModel = uniqueModels.join(', ');
-                                }
-                            } else if (device.model && device.model !== displayName && device.model !== '未知型號') {
-                                displayModel = device.model;
-                            }
-                            
-                            const displayLocation = device.location || '未知位置';
-                            const dataSource = device.source === 'settings' ? '設定檔' : 
-                                             device.source === 'both' ? '即時+設定' : 
-                                             device.source === 'uart' ? '即時數據' : '未知來源';
+                        // 計算該型號的統計資料
+                        const totalDevices = devicesInModel.length;
+                        const avgCurrent = devicesInModel.reduce((sum, d) => sum + d.current, 0) / totalDevices;
+                        const maxCurrent = Math.max(...devicesInModel.map(d => d.current));
+                        const minCurrent = Math.min(...devicesInModel.map(d => d.current));
+                        
+                        // 取得代表性設備的位置和廠區資訊
+                        const firstDevice = devicesInModel[0];
+                        const locations = [...new Set(devicesInModel.map(d => d.location).filter(l => l))];
+                        const areas = [...new Set(devicesInModel.map(d => d.area).filter(a => a))];
 
-                            colDiv.innerHTML = `
-                                <div class="card h-100">
-                                    <div class="card-header p-2">
-                                        <h6 class="mb-0 text-truncate" title="${device.area} - ${displayLocation}">
-                                            ${displayName}
-                                        </h6>
-                                        <small class="text-muted">${macId}</small>
-                                        <div class="mt-1">
-                                            <span class="badge badge-sm ${device.source === 'settings' ? 'bg-info' : 
-                                                                        device.source === 'both' ? 'bg-success' : 
-                                                                        'bg-secondary'}" 
-                                                  style="font-size: 0.7rem;">${dataSource}</span>
-                                        </div>
+                        const chartId = `chart_model_${modelName.replace(/[^a-zA-Z0-9]/g, '_')}`;
+                        console.log(`創建型號圖表，ID: ${chartId}`);
+
+                        colDiv.innerHTML = `
+                            <div class="card h-100">
+                                <div class="card-header p-3">
+                                    <h5 class="mb-1 text-primary">${modelName}</h5>
+                                    <small class="text-muted">設備型號 (${totalDevices} 台設備)</small>
+                                    <div class="mt-2">
+                                        <span class="badge bg-primary me-1">${totalDevices} 台設備</span>
+                                        ${areas.length > 0 ? `<span class="badge bg-info me-1">${areas.join(', ')}</span>` : ''}
                                     </div>
-                                    <div class="card-body p-2">
-                                        <canvas id="chart_${macId.replace(/:/g, '_')}" width="200" height="150"></canvas>
-                                        <div class="mt-1">
-                                            <small class="text-muted">${displayLocation}</small><br>
-                                            ${displayModel ? `<small class="text-primary" title="設備型號: ${displayModel}">型號: ${displayModel.length > 15 ? displayModel.substring(0, 15) + '...' : displayModel}</small><br>` : ''}
-                                            <small class="fw-bold">目前: ${device.current.toFixed(2)}A</small>
-                                            ${device.deviceDescription ? `<br><small class="text-info" title="${device.deviceDescription}">📋 ${device.deviceDescription.substring(0, 20)}${device.deviceDescription.length > 20 ? '...' : ''}</small>` : ''}
+                                </div>
+                                <div class="card-body p-3">
+                                    <canvas id="${chartId}" width="300" height="200"></canvas>
+                                    <div class="mt-3">
+                                        <div class="row text-center">
+                                            <div class="col-4">
+                                                <small class="text-muted">平均電流</small><br>
+                                                <span class="fw-bold text-success">${avgCurrent.toFixed(2)}A</span>
+                                            </div>
+                                            <div class="col-4">
+                                                <small class="text-muted">最大電流</small><br>
+                                                <span class="fw-bold text-danger">${maxCurrent.toFixed(2)}A</span>
+                                            </div>
+                                            <div class="col-4">
+                                                <small class="text-muted">最小電流</small><br>
+                                                <span class="fw-bold text-info">${minCurrent.toFixed(2)}A</span>
+                                            </div>
+                                        </div>
+                                        ${locations.length > 0 ? `<div class="mt-2"><small class="text-muted">位置: ${locations.join(', ')}</small></div>` : ''}
+                                        <div class="mt-2">
+                                            <small class="text-primary">包含設備:</small><br>
+                                            ${devicesInModel.slice(0, 3).map(d => `<small class="text-muted">${d.deviceName || d.mac_id}</small>`).join('<br>')}
+                                            ${devicesInModel.length > 3 ? `<br><small class="text-muted">... 等 ${devicesInModel.length - 3} 台</small>` : ''}
                                         </div>
                                     </div>
                                 </div>
-                            `;
+                            </div>
+                        `;
 
-                            rowDiv.appendChild(colDiv);
+                        rowDiv.appendChild(colDiv);
 
-                            // 延遲一點再繪製圖表，確保 DOM 已更新
-                            setTimeout(() => {
-                                drawMiniChart(macId.replace(/:/g, '_'), chartData, device);
-                            }, 100);
-                        }
+                        // 延遲一點再繪製圖表，確保 DOM 已更新
+                        setTimeout(() => {
+                            console.log(`準備繪製型號圖表: ${chartId}`);
+                            drawModelChart(chartId, combinedChartData, modelName, devicesInModel);
+                        }, 100 + j * 50);
                     }
 
                     container.appendChild(rowDiv);
+                    console.log(`第 ${i+1} 行已添加到容器`);
                 }
 
+                console.log('所有型號圖表行已創建');
                 hideLoading();
 
             } catch (error) {
@@ -1442,32 +1640,86 @@
 
         // 獲取設備圖表數據
         async function getDeviceChartData(macId) {
+            console.log(`正在獲取設備 ${macId} 的圖表數據`);
             try {
-                const response = await fetch(`/api/uart/mac-channels/${macId}`);
+                const url = `/api/uart/mac-channels/${macId}`;
+                console.log(`請求 URL: ${url}`);
+                
+                const response = await fetch(url);
+                console.log(`回應狀態: ${response.status} ${response.statusText}`);
+                
                 if (response.ok) {
                     const data = await response.json();
-                    return data.success ? data.data : [];
+                    console.log(`API 回應:`, data);
+                    
+                    if (data.success) {
+                        console.log(`成功獲取 ${macId} 的數據，數量: ${data.data ? data.data.length : 0}`);
+                        return data.data || [];
+                    } else {
+                        console.warn(`API 回應 success=false: ${data.message || '未知錯誤'}`);
+                        return [];
+                    }
+                } else {
+                    console.warn(`HTTP 請求失敗: ${response.status} ${response.statusText}`);
+                    return [];
                 }
             } catch (error) {
                 console.error(`獲取 ${macId} 數據失敗:`, error);
+                return [];
             }
-            return [];
+        }
+
+        // 獲取型號綜合圖表數據
+        async function getCombinedModelChartData(devicesInModel) {
+            console.log(`正在獲取型號的綜合數據，包含 ${devicesInModel.length} 個設備`);
+            
+            const allData = [];
+            
+            // 獲取所有設備的數據
+            for (const device of devicesInModel) {
+                const deviceData = await getDeviceChartData(device.mac_id);
+                if (deviceData && deviceData.length > 0) {
+                    // 為每個數據點添加設備標識
+                    deviceData.forEach(dataPoint => {
+                        allData.push({
+                            ...dataPoint,
+                            deviceId: device.mac_id,
+                            deviceName: device.deviceName || device.mac_id
+                        });
+                    });
+                }
+            }
+            
+            // 按時間排序
+            allData.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+            
+            console.log(`型號綜合數據獲取完成，共 ${allData.length} 個數據點`);
+            return allData;
         }
 
         // 繪製迷你圖表
         function drawMiniChart(chartId, data, device) {
+            console.log(`開始繪製圖表: chart_${chartId}`);
             const canvas = document.getElementById(`chart_${chartId}`);
-            if (!canvas) return;
+            console.log('Canvas 元素:', canvas);
+            
+            if (!canvas) {
+                console.error(`找不到 canvas 元素: chart_${chartId}`);
+                return;
+            }
 
             const ctx = canvas.getContext('2d');
             const width = canvas.width;
             const height = canvas.height;
+            console.log(`Canvas 尺寸: ${width}x${height}`);
 
             // 清除畫布
             ctx.clearRect(0, 0, width, height);
 
+            console.log('圖表數據:', data);
             if (!data || data.length === 0) {
                 // 無數據時顯示提示
+                console.log('無數據，顯示提示文字');
                 ctx.fillStyle = '#6c757d';
                 ctx.font = '12px Arial';
                 ctx.textAlign = 'center';
@@ -1478,9 +1730,12 @@
             // 取最近的50個數據點
             const recentData = data.slice(-50);
             const values = recentData.map(d => parseFloat(d.current) || 0);
+            console.log(`處理後的數值陣列 (${values.length} 個點):`, values.slice(0, 5), '...');
+            
             const maxValue = Math.max(...values, 1);
             const minValue = Math.min(...values, 0);
             const range = maxValue - minValue || 1;
+            console.log(`數值範圍: ${minValue} - ${maxValue} (range: ${range})`);
 
             // 繪製背景網格
             ctx.strokeStyle = '#e9ecef';
@@ -1492,9 +1747,11 @@
                 ctx.lineTo(width, y);
                 ctx.stroke();
             }
+            console.log('背景網格已繪製');
 
             // 繪製電流曲線
             if (values.length > 1) {
+                console.log('開始繪製電流曲線');
                 ctx.strokeStyle = '#007bff';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
@@ -1512,6 +1769,7 @@
                 });
 
                 ctx.stroke();
+                console.log('電流曲線已繪製');
 
                 // 填充區域
                 ctx.fillStyle = 'rgba(0, 123, 255, 0.1)';
@@ -1519,6 +1777,9 @@
                 ctx.lineTo(0, height);
                 ctx.closePath();
                 ctx.fill();
+                console.log('填充區域已繪製');
+            } else {
+                console.log('數據點不足，無法繪製曲線');
             }
 
             // 顯示最大最小值
@@ -1527,6 +1788,159 @@
             ctx.textAlign = 'left';
             ctx.fillText(`Max: ${maxValue.toFixed(1)}A`, 2, 10);
             ctx.fillText(`Min: ${minValue.toFixed(1)}A`, 2, height - 2);
+            console.log('圖表標籤已繪製');
+            console.log(`圖表 chart_${chartId} 繪製完成`);
+        }
+
+        // 繪製型號綜合圖表
+        function drawModelChart(chartId, combinedData, modelName, devicesInModel) {
+            console.log(`開始繪製型號圖表: ${chartId}`);
+            const canvas = document.getElementById(chartId);
+            console.log('Canvas 元素:', canvas);
+            
+            if (!canvas) {
+                console.error(`找不到 canvas 元素: ${chartId}`);
+                return;
+            }
+
+            const ctx = canvas.getContext('2d');
+            const width = canvas.width;
+            const height = canvas.height;
+            console.log(`Canvas 尺寸: ${width}x${height}`);
+
+            // 清除畫布
+            ctx.clearRect(0, 0, width, height);
+
+            console.log('型號綜合數據:', combinedData);
+            if (!combinedData || combinedData.length === 0) {
+                // 無數據時顯示提示
+                console.log('無數據，顯示提示文字');
+                ctx.fillStyle = '#6c757d';
+                ctx.font = '16px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('無數據', width/2, height/2);
+                ctx.font = '12px Arial';
+                ctx.fillText(`型號: ${modelName}`, width/2, height/2 + 20);
+                return;
+            }
+
+            // 取最近的100個數據點（型號圖表顯示更多數據）
+            const recentData = combinedData.slice(-100);
+            const values = recentData.map(d => parseFloat(d.current) || 0);
+            console.log(`處理後的數值陣列 (${values.length} 個點):`, values.slice(0, 5), '...');
+            
+            const maxValue = Math.max(...values, 1);
+            const minValue = Math.min(...values, 0);
+            const range = maxValue - minValue || 1;
+            console.log(`數值範圍: ${minValue} - ${maxValue} (range: ${range})`);
+
+            // 繪製背景網格
+            ctx.strokeStyle = '#e9ecef';
+            ctx.lineWidth = 0.5;
+            for (let i = 1; i < 5; i++) {
+                const y = (height / 5) * i;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(width, y);
+                ctx.stroke();
+            }
+            
+            // 繪製垂直網格線
+            for (let i = 1; i < 10; i++) {
+                const x = (width / 10) * i;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, height);
+                ctx.stroke();
+            }
+            console.log('背景網格已繪製');
+
+            // 按設備分組繪製不同顏色的曲線
+            const deviceColors = [
+                '#007bff', '#28a745', '#dc3545', '#ffc107', '#6f42c1',
+                '#fd7e14', '#20c997', '#e83e8c', '#6610f2', '#198754'
+            ];
+            
+            const deviceGroups = {};
+            recentData.forEach(dataPoint => {
+                const deviceId = dataPoint.deviceId;
+                if (!deviceGroups[deviceId]) {
+                    deviceGroups[deviceId] = [];
+                }
+                deviceGroups[deviceId].push(dataPoint);
+            });
+
+            // 為每個設備繪製曲線
+            Object.keys(deviceGroups).forEach((deviceId, index) => {
+                const deviceData = deviceGroups[deviceId];
+                const color = deviceColors[index % deviceColors.length];
+                
+                if (deviceData.length > 1) {
+                    console.log(`繪製設備 ${deviceId} 的曲線，顏色: ${color}`);
+                    ctx.strokeStyle = color;
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+
+                    deviceData.forEach((dataPoint, pointIndex) => {
+                        const globalIndex = recentData.indexOf(dataPoint);
+                        const x = (globalIndex / (recentData.length - 1)) * width;
+                        const y = height - ((parseFloat(dataPoint.current) - minValue) / range) * height;
+
+                        if (pointIndex === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    });
+
+                    ctx.stroke();
+                }
+            });
+
+            // 計算並繪製平均曲線
+            if (values.length > 1) {
+                console.log('繪製平均值曲線');
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]); // 虛線
+                ctx.beginPath();
+
+                // 將數據分組計算移動平均
+                const windowSize = Math.max(1, Math.floor(values.length / 20));
+                for (let i = 0; i < values.length; i += windowSize) {
+                    const windowValues = values.slice(i, i + windowSize);
+                    const avgValue = windowValues.reduce((sum, val) => sum + val, 0) / windowValues.length;
+                    
+                    const x = (i / (values.length - 1)) * width;
+                    const y = height - ((avgValue - minValue) / range) * height;
+
+                    if (i === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+
+                ctx.stroke();
+                ctx.setLineDash([]); // 恢復實線
+            }
+
+            // 顯示圖例和統計信息
+            ctx.fillStyle = '#495057';
+            ctx.font = '11px Arial';
+            ctx.textAlign = 'left';
+            
+            // 顯示數值範圍
+            ctx.fillText(`最大: ${maxValue.toFixed(2)}A`, 5, 15);
+            ctx.fillText(`最小: ${minValue.toFixed(2)}A`, 5, height - 5);
+            ctx.fillText(`平均: ${(values.reduce((sum, val) => sum + val, 0) / values.length).toFixed(2)}A`, 5, 30);
+            
+            // 顯示設備數量
+            ctx.textAlign = 'right';
+            ctx.fillText(`${devicesInModel.length} 台設備`, width - 5, 15);
+            ctx.fillText(`${values.length} 個數據點`, width - 5, 30);
+
+            console.log(`型號圖表 ${chartId} 繪製完成`);
         }
 
         // 載入和隱藏 loading 的輔助函數
@@ -1543,6 +1957,12 @@
             if (overlay) {
                 overlay.style.display = 'none';
             }
+        }
+
+        // 重新整理儀表板
+        function refreshDashboard() {
+            console.log('重新整理儀表板');
+            refreshDeviceData();
         }
     </script>
 </body>

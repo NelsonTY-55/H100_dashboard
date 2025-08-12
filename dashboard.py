@@ -725,6 +725,55 @@ def api_multi_device_settings():
             'devices': {}
         })
 
+@app.route('/api/dashboard/areas')
+def api_dashboard_areas():
+    """API: 獲取所有廠區、位置、設備型號統計資料"""
+    try:
+        all_devices = multi_device_settings_manager.load_all_devices()
+        
+        # 統計廠區 (device_name)
+        areas = set()
+        locations = set()
+        models = set()
+        
+        for mac_id, device_setting in all_devices.items():
+            # 廠區對應 device_name
+            if device_setting.get('device_name'):
+                areas.add(device_setting['device_name'])
+            
+            # 設備位置對應 device_location    
+            if device_setting.get('device_location'):
+                locations.add(device_setting['device_location'])
+            
+            # 設備型號處理
+            device_model = device_setting.get('device_model', '')
+            if isinstance(device_model, dict):
+                # 如果是字典格式（多頻道型號）
+                for channel, model in device_model.items():
+                    if model and model.strip():
+                        models.add(model.strip())
+            elif isinstance(device_model, str) and device_model.strip():
+                models.add(device_model.strip())
+        
+        return jsonify({
+            'success': True,
+            'areas': sorted(list(areas)),
+            'locations': sorted(list(locations)),
+            'models': sorted(list(models)),
+            'device_count': len(all_devices),
+            'timestamp': datetime.now().isoformat()
+        })
+        
+    except Exception as e:
+        logging.error(f"獲取廠區統計資料時發生錯誤: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取廠區統計資料失敗: {str(e)}',
+            'areas': [],
+            'locations': [],
+            'models': []
+        })
+
 # ====== Dashboard 相關路由 ======
 
 @app.route('/dashboard')
@@ -1301,101 +1350,77 @@ def get_uart_mac_channels(mac_id=None):
                 for channel_data in data_info.get('data', []):
                     for data_point in channel_data.get('data', []):
                         data.append({
-                            'mac_id': channel_data.get('mac_id', 'N/A'),
+                            'mac_id': data_point.get('mac_id', channel_data.get('mac_id', 'N/A')),
                             'channel': channel_data.get('channel', 0),
                             'timestamp': data_point.get('timestamp'),
                             'parameter': data_point.get('parameter'),
-                            'unit': channel_data.get('unit', 'N/A')
+                            'unit': channel_data.get('unit', 'A')
                         })
                 data_source = "歷史文件"
+                logging.info(f"從歷史文件載入了 {len(data)} 筆原始數據")
             else:
                 logging.warning(f"從文件獲取數據失敗: {data_info.get('error', '未知錯誤')}")
-        
+
         if not data:
             return jsonify({
                 'success': True, 
-                'data': {}, 
+                'data': [], 
                 'message': '暫無UART數據，請先啟動UART讀取或檢查數據文件'
             })
-        
-        # 按MAC ID和通道分組數據
-        mac_channels = {}
-        
-        for entry in data:
-            entry_mac_id = entry.get('mac_id', 'N/A')
-            entry_channel = entry.get('channel', 0)
-            
-            # 如果指定了特定MAC ID，只處理該MAC ID的數據
-            if mac_id and entry_mac_id != mac_id:
-                continue
-            
-            # 跳過無效的MAC ID
-            if entry_mac_id in ['N/A', '', None]:
-                continue
-            
-            # 初始化MAC ID
-            if entry_mac_id not in mac_channels:
-                mac_channels[entry_mac_id] = {
-                    'mac_id': entry_mac_id,
-                    'channels': {},
-                    'total_data_count': 0,
-                    'channel_count': 0
-                }
-            
-            # 初始化通道
-            if entry_channel not in mac_channels[entry_mac_id]['channels']:
-                mac_channels[entry_mac_id]['channels'][entry_channel] = {
-                    'channel': entry_channel,
-                    'unit': entry.get('unit', 'N/A'),
-                    'data_count': 0,
-                    'latest_value': None,
-                    'latest_timestamp': None
-                }
-                mac_channels[entry_mac_id]['channel_count'] += 1
-            
-            # 更新通道統計
-            channel_info = mac_channels[entry_mac_id]['channels'][entry_channel]
-            channel_info['data_count'] += 1
-            channel_info['latest_value'] = entry.get('parameter', 0)
-            channel_info['latest_timestamp'] = entry.get('timestamp')
-            
-            # 更新MAC ID統計
-            mac_channels[entry_mac_id]['total_data_count'] += 1
-        
-        # 轉換通道字典為列表並排序
-        for mac_data in mac_channels.values():
-            mac_data['channels'] = sorted(list(mac_data['channels'].values()), key=lambda x: x['channel'])
-        
+
+        logging.info(f"總共處理 {len(data)} 筆UART數據，來源: {data_source}")
+
         if mac_id:
-            # 如果請求特定MAC ID，直接返回該MAC ID的數據
-            if mac_id in mac_channels:
-                # 提取頻道號碼列表（只返回0-6的頻道，過濾掉頻道7電池電壓）
-                channels = [ch['channel'] for ch in mac_channels[mac_id]['channels'] if ch['channel'] >= 0 and ch['channel'] <= 6]
-                
-                return jsonify({
-                    'success': True,
-                    'mac_id': mac_id,
-                    'channels': sorted(channels),  # 只返回頻道號碼列表
-                    'data': mac_channels[mac_id],  # 完整數據
-                    'data_source': data_source,
-                    'message': f'MAC ID {mac_id} 的通道資訊 (來源: {data_source})'
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'mac_id': mac_id,
-                    'channels': [],
-                    'data': {},
-                    'message': f'找不到 MAC ID {mac_id} 的數據'
-                })
-        else:
-            # 返回所有MAC ID的通道統計
+            # 如果請求特定MAC ID，返回該MAC ID的時間序列數據
+            mac_data_points = []
+            
+            for entry in data:
+                entry_mac_id = entry.get('mac_id', 'N/A')
+                if entry_mac_id == mac_id:
+                    # 只取電流頻道的數據（頻道0-6，排除頻道7電池電壓）
+                    entry_channel = entry.get('channel', 0)
+                    if 0 <= entry_channel <= 6:
+                        mac_data_points.append({
+                            'timestamp': entry.get('timestamp'),
+                            'current': float(entry.get('parameter', 0)),
+                            'channel': entry_channel,
+                            'unit': entry.get('unit', 'A')
+                        })
+            
+            # 按時間排序
+            mac_data_points.sort(key=lambda x: x.get('timestamp', ''))
+            
+            logging.info(f"MAC ID {mac_id} 的電流數據點數量: {len(mac_data_points)}")
+            
             return jsonify({
                 'success': True,
-                'data': mac_channels,
-                'total_mac_ids': len(mac_channels),
+                'mac_id': mac_id,
+                'data': mac_data_points,  # 返回時間序列數據點
+                'data_count': len(mac_data_points),
                 'data_source': data_source,
-                'message': f'找到 {len(mac_channels)} 個 MAC ID 的通道資訊 (來源: {data_source})'
+                'message': f'MAC ID {mac_id} 的電流數據 (來源: {data_source}，共 {len(mac_data_points)} 個數據點)'
+            })
+        else:
+            # 如果沒有指定 MAC ID，返回所有 MAC ID 的摘要
+            mac_summary = {}
+            for entry in data:
+                entry_mac_id = entry.get('mac_id', 'N/A')
+                if entry_mac_id not in ['N/A', '', None]:
+                    if entry_mac_id not in mac_summary:
+                        mac_summary[entry_mac_id] = {
+                            'mac_id': entry_mac_id,
+                            'data_count': 0,
+                            'latest_timestamp': None
+                        }
+                    mac_summary[entry_mac_id]['data_count'] += 1
+                    mac_summary[entry_mac_id]['latest_timestamp'] = entry.get('timestamp')
+            
+            return jsonify({
+                'success': True,
+                'data': mac_summary,
+                'total_mac_ids': len(mac_summary),
+                'data_source': data_source,
+                'message': f'找到 {len(mac_summary)} 個 MAC ID 的數據 (來源: {data_source})'
             })
         
     except Exception as e:

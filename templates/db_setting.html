@@ -507,8 +507,18 @@
                     if (data.success) {
                         let channels = [];
                         
-                        // 檢查新的 API 格式
-                        if (data.channels && Array.isArray(data.channels)) {
+                        // 檢查API返回的數據格式
+                        if (data.data && Array.isArray(data.data)) {
+                            // 從時間序列數據中提取頻道列表
+                            const channelSet = new Set();
+                            data.data.forEach(dataPoint => {
+                                const channel = dataPoint.channel;
+                                if (channel >= 0 && channel <= 6) {
+                                    channelSet.add(channel);
+                                }
+                            });
+                            channels = Array.from(channelSet).sort((a, b) => a - b);
+                        } else if (data.channels && Array.isArray(data.channels)) {
                             // 新格式：直接有 channels 陣列
                             channels = data.channels.filter(ch => ch >= 0 && ch <= 6);
                         } else if (data.data && data.data.channels && Array.isArray(data.data.channels)) {
@@ -796,6 +806,71 @@
             }
         }
 
+        // 根據MAC ID載入設備設定 (簡化版，用於MAC ID選擇變更時)
+        async function loadDeviceSettingsForMacId(macId) {
+            if (!macId) {
+                console.log('沒有選擇MAC ID，清空設備設定字段');
+                // 清空設備設定字段
+                document.getElementById('deviceName').value = '';
+                document.getElementById('deviceLocation').value = '';
+                document.getElementById('deviceDescription').value = '';
+                return;
+            }
+
+            try {
+                console.log(`正在載入MAC ID ${macId} 的設備設定...`);
+                
+                const response = await fetch(`/api/device-settings?mac_id=${encodeURIComponent(macId)}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('設備設定API回應:', data);
+                    
+                    if (data.success && data.settings) {
+                        // 填入設備設定
+                        document.getElementById('deviceName').value = data.settings.device_name || '';
+                        document.getElementById('deviceLocation').value = data.settings.device_location || '';
+                        document.getElementById('deviceDescription').value = data.settings.device_description || '';
+                        
+                        // 等待一下讓頻道載入完成，然後填入設備型號
+                        setTimeout(() => {
+                            const deviceModel = data.settings.device_model || '';
+                            if (typeof deviceModel === 'object') {
+                                // 設備型號是物件（每個頻道不同）
+                                CHANNEL_CONFIG.CURRENT_CHANNELS.forEach(ch => {
+                                    const element = document.getElementById(`deviceModel${ch}`);
+                                    if (element) {
+                                        element.value = deviceModel[ch] || '';
+                                    }
+                                });
+                            } else {
+                                // 設備型號是字串（所有頻道相同）
+                                const firstChannel = CHANNEL_CONFIG.CURRENT_CHANNELS[0];
+                                if (firstChannel) {
+                                    const element = document.getElementById(`deviceModel${firstChannel}`);
+                                    if (element) {
+                                        element.value = deviceModel || '';
+                                    }
+                                }
+                            }
+                        }, 100);
+                        
+                        console.log(`已載入MAC ID ${macId} 的設備設定`);
+                    } else {
+                        console.log(`MAC ID ${macId} 沒有保存的設定，使用預設值`);
+                        // 沒有保存的設定，清空字段使用預設值
+                        document.getElementById('deviceName').value = '';
+                        document.getElementById('deviceLocation').value = '';
+                        document.getElementById('deviceDescription').value = '';
+                    }
+                } else {
+                    console.warn(`無法載入MAC ID ${macId} 的設定: ${response.status}`);
+                }
+            } catch (error) {
+                console.error(`載入MAC ID ${macId} 設定時發生錯誤:`, error);
+            }
+        }
+
         // 獲取MAC ID列表
         async function loadMacIdList() {
             try {
@@ -929,7 +1004,20 @@
             select.onchange = function() {
                 const selectedMacId = this.value;
                 console.log('選擇了新的 MAC ID:', selectedMacId);
+                
+                // 更新設備序列號字段
+                const deviceSerialInput = document.getElementById('deviceSerial');
+                if (deviceSerialInput) {
+                    deviceSerialInput.value = selectedMacId;
+                }
+                
+                // 載入頻道資訊
                 loadChannelsForMacId(selectedMacId);
+                
+                // 載入該MAC ID的設備設定
+                if (selectedMacId) {
+                    loadDeviceSettingsForMacId(selectedMacId);
+                }
             };
         }
 
