@@ -976,13 +976,11 @@
                 if (data.success && data.current_wifi && data.current_wifi.ssid) {
                     // 有連接到WiFi網路
                     const ssid = data.current_wifi.ssid;
-                    const signal = data.current_wifi.signal || '';
-                    const signalText = signal ? ` (${signal})` : '';
                     
                     badge.className = 'badge fs-6 px-3 py-2 bg-success';
-                    badge.innerHTML = `<i class="fas fa-wifi me-2"></i>已連接: ${ssid}${signalText}`;
+                    badge.innerHTML = `<i class="fas fa-wifi me-2"></i>已連接: ${ssid}`;
                     
-                    console.log(`WiFi狀態更新: 已連接到 ${ssid}${signalText}`);
+                    console.log(`WiFi狀態更新: 已連接到 ${ssid}`);
                 } else if (data.success && data.network_status && data.network_status.internet_available) {
                     // 有網路連接但非WiFi（可能是有線網路）
                     badge.className = 'badge fs-6 px-3 py-2 bg-info';
