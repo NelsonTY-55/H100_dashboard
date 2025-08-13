@@ -1517,6 +1517,99 @@ def get_mac_channels(mac_id):
             'message': f'獲取頻道資訊時發生錯誤: {str(e)}'
         })
 
+@app.route('/api/uart/mac-data/<mac_id>', methods=['GET'])
+def get_mac_data_10min(mac_id):
+    """API: 獲取特定MAC ID最近10分鐘的電流數據"""
+    try:
+        # 獲取時間範圍參數，預設為10分鐘
+        minutes = request.args.get('minutes', 10, type=int)
+        
+        # 獲取原始數據
+        data = uart_reader.get_latest_data()
+        
+        if not data:
+            return jsonify({
+                'success': False,
+                'data': [],
+                'message': '暫無UART數據，請先啟動UART讀取'
+            })
+        
+        # 計算時間範圍
+        from datetime import datetime, timedelta
+        time_limit = datetime.now() - timedelta(minutes=minutes)
+        
+        # 過濾指定MAC ID和時間範圍內的數據
+        filtered_data = []
+        for entry in data:
+            if entry.get('mac_id') != mac_id:
+                continue
+                
+            # 只包含電流數據 (單位為 'A')
+            if entry.get('unit') != 'A':
+                continue
+                
+            # 檢查時間戳
+            entry_timestamp_str = entry.get('timestamp')
+            if entry_timestamp_str:
+                try:
+                    # 嘗試多種時間格式解析
+                    entry_timestamp = None
+                    for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f']:
+                        try:
+                            entry_timestamp = datetime.strptime(entry_timestamp_str, fmt)
+                            break
+                        except ValueError:
+                            continue
+                    
+                    # 如果無法解析時間戳，嘗試作為ISO格式
+                    if entry_timestamp is None:
+                        try:
+                            entry_timestamp = datetime.fromisoformat(entry_timestamp_str.replace('Z', '+00:00'))
+                        except:
+                            continue  # 跳過無法解析的數據
+                    
+                    # 檢查數據是否在指定時間範圍內
+                    if entry_timestamp < time_limit:
+                        continue  # 跳過超過時間範圍的舊數據
+                        
+                except Exception as e:
+                    logging.warning(f"解析時間戳失敗: {entry_timestamp_str}, 錯誤: {e}")
+                    continue  # 跳過解析失敗的數據
+            else:
+                # 如果沒有時間戳，假設是最新數據
+                pass
+            
+            # 添加到結果中
+            filtered_data.append({
+                'timestamp': entry.get('timestamp'),
+                'current': float(entry.get('parameter', 0)),
+                'channel': entry.get('channel', 0),
+                'mac_id': entry.get('mac_id'),
+                'unit': entry.get('unit', 'A')
+            })
+        
+        # 按時間戳排序
+        filtered_data.sort(key=lambda x: x['timestamp'] or '')
+        
+        logging.info(f'獲取MAC ID {mac_id} 最近 {minutes} 分鐘數據: {len(filtered_data)} 筆')
+        
+        return jsonify({
+            'success': True,
+            'data': filtered_data,
+            'mac_id': mac_id,
+            'time_range_minutes': minutes,
+            'total_data_points': len(filtered_data),
+            'message': f'MAC ID {mac_id} 最近 {minutes} 分鐘有 {len(filtered_data)} 筆電流數據'
+        })
+        
+    except Exception as e:
+        logging.exception(f'獲取MAC ID {mac_id} 數據時發生錯誤: {str(e)}')
+        return jsonify({
+            'success': False,
+            'data': [],
+            'message': f'獲取數據時發生錯誤: {str(e)}'
+        })
+
 @app.route('/api/uart/diagnostic', methods=['POST'])
 def uart_diagnostic():
     """API: 執行UART診斷"""

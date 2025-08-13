@@ -582,6 +582,11 @@
                     <i class="fas fa-list-alt me-2"></i> <span class="sidebar-link-text">配置摘要</span>
                 </a>
             </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/raspberry-pi-config">
+                    <i class="fas fa-wifi me-2"></i> <span class="sidebar-link-text">樹莓派連接</span>
+                </a>
+            </li>
         </ul>
     </div>
     <style>
@@ -798,7 +803,7 @@
                     <div class="card-header">
                         <h5 class="mb-0">
                             <i class="fas fa-chart-line me-2"></i>
-                            多設備電流圖表生成器
+                            多設備電流圖表生成器 (最近10分鐘數據)
                         </h5>
                     </div>
                     <div class="card-body">
@@ -878,7 +883,7 @@
                             <div>
                                 <span class="text-muted me-3">已選擇: <span id="selectedCount">0</span> 個設備</span>
                                 <button class="btn btn-primary btn-lg" onclick="generateCharts()" id="generateBtn" disabled>
-                                    <i class="fas fa-chart-area me-2"></i>產生型號電流圖表
+                                    <i class="fas fa-chart-area me-2"></i>產生型號電流圖表 (最近10分鐘)
                                 </button>
                             </div>
                         </div>
@@ -1581,9 +1586,10 @@
                             <div class="card h-100">
                                 <div class="card-header p-3">
                                     <h5 class="mb-1 text-primary">${modelName}</h5>
-                                    <small class="text-muted">設備型號 (${totalDevices} 台設備)</small>
+                                    <small class="text-muted">設備型號 (${totalDevices} 台設備) - 最近10分鐘數據</small>
                                     <div class="mt-2">
                                         <span class="badge bg-primary me-1">${totalDevices} 台設備</span>
+                                        <span class="badge bg-success me-1">10分鐘數據</span>
                                         ${areas.length > 0 ? `<span class="badge bg-info me-1">${areas.join(', ')}</span>` : ''}
                                     </div>
                                 </div>
@@ -1638,11 +1644,11 @@
             }
         }
 
-        // 獲取設備圖表數據
+        // 獲取設備圖表數據 (最近10分鐘)
         async function getDeviceChartData(macId) {
-            console.log(`正在獲取設備 ${macId} 的圖表數據`);
+            console.log(`正在獲取設備 ${macId} 最近10分鐘的圖表數據`);
             try {
-                const url = `/api/uart/mac-channels/${macId}`;
+                const url = `/api/uart/mac-data/${macId}?minutes=10`;
                 console.log(`請求 URL: ${url}`);
                 
                 const response = await fetch(url);
@@ -1653,7 +1659,7 @@
                     console.log(`API 回應:`, data);
                     
                     if (data.success) {
-                        console.log(`成功獲取 ${macId} 的數據，數量: ${data.data ? data.data.length : 0}`);
+                        console.log(`成功獲取 ${macId} 最近10分鐘的數據，數量: ${data.data ? data.data.length : 0}`);
                         return data.data || [];
                     } else {
                         console.warn(`API 回應 success=false: ${data.message || '未知錯誤'}`);
@@ -1818,7 +1824,7 @@
                 ctx.fillStyle = '#6c757d';
                 ctx.font = '16px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText('無數據', width/2, height/2);
+                ctx.fillText('最近10分鐘無數據', width/2, height/2);
                 ctx.font = '12px Arial';
                 ctx.fillText(`型號: ${modelName}`, width/2, height/2 + 20);
                 return;
@@ -1935,10 +1941,11 @@
             ctx.fillText(`最小: ${minValue.toFixed(2)}A`, 5, height - 5);
             ctx.fillText(`平均: ${(values.reduce((sum, val) => sum + val, 0) / values.length).toFixed(2)}A`, 5, 30);
             
-            // 顯示設備數量
+            // 顯示設備數量和時間範圍
             ctx.textAlign = 'right';
             ctx.fillText(`${devicesInModel.length} 台設備`, width - 5, 15);
             ctx.fillText(`${values.length} 個數據點`, width - 5, 30);
+            ctx.fillText(`最近10分鐘`, width - 5, height - 5);
 
             console.log(`型號圖表 ${chartId} 繪製完成`);
         }
