@@ -5,4 +5,4 @@ paho-mqtt
 pyserial
 pyftpdlib 
 flask-monitoringdashboard
-psutil 
+psutil

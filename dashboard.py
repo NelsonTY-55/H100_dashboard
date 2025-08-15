@@ -9,6 +9,17 @@ from uart_integrated import uart_reader, protocol_manager
 from network_utils import network_checker, create_offline_mode_manager
 from device_settings import DeviceSettingsManager
 from multi_device_settings import MultiDeviceSettingsManager
+
+# 導入資料庫管理器
+try:
+    from database_manager import db_manager
+    DATABASE_AVAILABLE = True
+    print("Dashboard: 資料庫管理器載入成功")
+except ImportError as e:
+    print(f"Dashboard: 資料庫管理器載入失敗: {e}")
+    DATABASE_AVAILABLE = False
+    db_manager = None
+
 import os
 import json
 import logging
@@ -48,6 +59,11 @@ except (ImportError, AttributeError) as e:
         print("將使用 urllib 作為替代方案")
         requests = None
         requests_available = False
+
+# 無論如何都要導入 urllib 作為備選
+import urllib.request
+import urllib.parse
+import urllib.error
 
 from datetime import datetime, timedelta
 
@@ -980,6 +996,18 @@ def flask_dashboard():
                          app_stats=app_stats,
                          raspberry_pi_config=RASPBERRY_PI_CONFIG,
                          pi_status=pi_status)
+
+@app.route('/data-analysis')
+def data_analysis():
+    """資料分析頁面"""
+    logging.info(f'訪問資料分析頁面, remote_addr={request.remote_addr}')
+    
+    # 檢查資料庫是否可用
+    if not DATABASE_AVAILABLE or not db_manager:
+        flash('資料庫功能未啟用，請檢查系統配置', 'error')
+        return redirect(url_for('flask_dashboard'))
+    
+    return render_template('data_analysis.html')
 
 @app.route('/raspberry-pi-config')
 def raspberry_pi_config_page():
@@ -2665,6 +2693,326 @@ def set_mode():
             'activated_protocol': activated_protocol  # 本次切換啟動的協定
         })
     return jsonify({'success': False, 'msg': '無效模式'}), 400
+
+# ====== 資料庫相關 API ======
+
+@app.route('/api/database/factory-areas')
+def get_database_factory_areas():
+    """取得資料庫中的廠區列表"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        areas = db_manager.get_factory_areas()
+        return jsonify({
+            'success': True,
+            'data': areas,
+            'count': len(areas)
+        })
+    except Exception as e:
+        logging.error(f"取得廠區列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得廠區列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/floor-levels')
+def get_database_floor_levels():
+    """取得資料庫中的樓層列表"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        factory_area = request.args.get('factory_area')
+        floors = db_manager.get_floor_levels(factory_area)
+        return jsonify({
+            'success': True,
+            'data': floors,
+            'count': len(floors),
+            'filter': {'factory_area': factory_area}
+        })
+    except Exception as e:
+        logging.error(f"取得樓層列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得樓層列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/mac-ids')
+def get_database_mac_ids():
+    """取得資料庫中的 MAC ID 列表"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_ids = db_manager.get_mac_ids(factory_area, floor_level)
+        return jsonify({
+            'success': True,
+            'data': mac_ids,
+            'count': len(mac_ids),
+            'filter': {'factory_area': factory_area, 'floor_level': floor_level}
+        })
+    except Exception as e:
+        logging.error(f"取得 MAC ID 列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得 MAC ID 列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/device-models')
+def get_database_device_models():
+    """取得資料庫中的設備型號列表"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        models = db_manager.get_device_models(factory_area, floor_level, mac_id)
+        return jsonify({
+            'success': True,
+            'data': models,
+            'count': len(models),
+            'filter': {
+                'factory_area': factory_area, 
+                'floor_level': floor_level,
+                'mac_id': mac_id
+            }
+        })
+    except Exception as e:
+        logging.error(f"取得設備型號列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得設備型號列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/chart-data')
+def get_database_chart_data():
+    """取得資料庫中的圖表資料"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        # 解析請求參數
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        data_type = request.args.get('data_type', 'temperature')  # 預設為溫度
+        limit = int(request.args.get('limit', 1000))
+        
+        # 時間範圍
+        start_time = None
+        end_time = None
+        
+        start_time_str = request.args.get('start_time')
+        end_time_str = request.args.get('end_time')
+        
+        if start_time_str:
+            try:
+                start_time = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
+            except ValueError:
+                start_time = datetime.strptime(start_time_str, '%Y-%m-%d %H:%M:%S')
+        
+        if end_time_str:
+            try:
+                end_time = datetime.fromisoformat(end_time_str.replace('Z', '+00:00'))
+            except ValueError:
+                end_time = datetime.strptime(end_time_str, '%Y-%m-%d %H:%M:%S')
+        
+        # 如果沒有指定時間範圍，預設取最近24小時的資料
+        if not start_time:
+            start_time = datetime.now() - timedelta(hours=24)
+        
+        # 取得圖表資料
+        chart_data = db_manager.get_chart_data(
+            factory_area=factory_area,
+            floor_level=floor_level,
+            mac_id=mac_id,
+            device_model=device_model,
+            start_time=start_time,
+            end_time=end_time,
+            data_type=data_type,
+            limit=limit
+        )
+        
+        # 格式化資料供前端使用
+        formatted_data = []
+        for item in chart_data:
+            formatted_data.append({
+                'x': item['timestamp'],
+                'y': item['value'],
+                'mac_id': item['mac_id'],
+                'device_model': item['device_model'],
+                'factory_area': item['factory_area'],
+                'floor_level': item['floor_level']
+            })
+        
+        return jsonify({
+            'success': True,
+            'data': formatted_data,
+            'count': len(formatted_data),
+            'data_type': data_type,
+            'filter': {
+                'factory_area': factory_area,
+                'floor_level': floor_level,
+                'mac_id': mac_id,
+                'device_model': device_model,
+                'start_time': start_time.isoformat() if start_time else None,
+                'end_time': end_time.isoformat() if end_time else None,
+                'limit': limit
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"取得圖表資料失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得圖表資料失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/statistics')
+def get_database_statistics():
+    """取得資料庫統計資訊"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': {}
+        })
+    
+    try:
+        stats = db_manager.get_statistics()
+        return jsonify({
+            'success': True,
+            'data': stats
+        })
+    except Exception as e:
+        logging.error(f"取得資料庫統計資訊失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得資料庫統計資訊失敗: {str(e)}',
+            'data': {}
+        })
+
+@app.route('/api/database/latest-data')
+def get_database_latest_data():
+    """取得最新的資料"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        mac_id = request.args.get('mac_id')
+        limit = int(request.args.get('limit', 10))
+        
+        latest_data = db_manager.get_latest_data(mac_id, limit)
+        return jsonify({
+            'success': True,
+            'data': latest_data,
+            'count': len(latest_data),
+            'filter': {'mac_id': mac_id, 'limit': limit}
+        })
+    except Exception as e:
+        logging.error(f"取得最新資料失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得最新資料失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/register-device', methods=['POST'])
+def register_device():
+    """註冊設備資訊"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用'
+        })
+    
+    try:
+        device_info = request.get_json()
+        if not device_info:
+            return jsonify({
+                'success': False,
+                'message': '請提供設備資訊'
+            })
+        
+        success = db_manager.register_device(device_info)
+        if success:
+            return jsonify({
+                'success': True,
+                'message': '設備註冊成功'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': '設備註冊失敗'
+            })
+    except Exception as e:
+        logging.error(f"註冊設備失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'註冊設備失敗: {str(e)}'
+        })
+
+@app.route('/api/database/device-info')
+def get_database_device_info():
+    """取得設備資訊"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': []
+        })
+    
+    try:
+        mac_id = request.args.get('mac_id')
+        device_info = db_manager.get_device_info(mac_id)
+        return jsonify({
+            'success': True,
+            'data': device_info,
+            'count': len(device_info),
+            'filter': {'mac_id': mac_id}
+        })
+    except Exception as e:
+        logging.error(f"取得設備資訊失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'取得設備資訊失敗: {str(e)}',
+            'data': []
+        })
 
 # ====== 錯誤處理 ======
 

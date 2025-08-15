@@ -9,6 +9,16 @@ from datetime import datetime
 from config_manager import ConfigManager
 import paho.mqtt.client as mqtt
 
+# 導入資料庫管理器
+try:
+    from database_manager import db_manager
+    DATABASE_AVAILABLE = True
+    print("資料庫管理器載入成功")
+except ImportError as e:
+    print(f"警告: 資料庫管理器載入失敗: {e}")
+    DATABASE_AVAILABLE = False
+    db_manager = None
+
 # 嘗試導入 pymodbus API
 try:
     from pymodbus.server.sync import StartSerialServer, StartTcpServer
@@ -321,6 +331,41 @@ class UARTReader:
                                 self._cleanup_old_data()
                             
                             logging.info(f"UART 收到: {decoded_line} -> {data_entry}")
+                            
+                            # 儲存到資料庫
+                            if DATABASE_AVAILABLE and db_manager:
+                                try:
+                                    # 準備資料庫格式的資料
+                                    db_data = {
+                                        'timestamp': data_entry['timestamp'],
+                                        'mac_id': data_entry['mac_id'],
+                                        'raw_data': decoded_line,
+                                        'device_type': 'UART Device',  # 可以從配置中取得
+                                        'device_model': 'Unknown',      # 可以從配置中取得
+                                        'factory_area': 'Default',      # 可以從配置中取得
+                                        'floor_level': 'Default',       # 可以從配置中取得
+                                        'status': 'normal'
+                                    }
+                                    
+                                    # 根據 channel 和 unit 設定對應的感測器數據
+                                    if parsed_data['unit'] == 'A':
+                                        db_data['current'] = parsed_data['parameter']
+                                    elif parsed_data['unit'] == 'V':
+                                        db_data['voltage'] = parsed_data['parameter']
+                                    elif parsed_data['channel'] == 0:  # 假設 channel 0 是溫度
+                                        db_data['temperature'] = parsed_data['parameter']
+                                    elif parsed_data['channel'] == 1:  # 假設 channel 1 是濕度
+                                        db_data['humidity'] = parsed_data['parameter']
+                                    
+                                    # 儲存到資料庫
+                                    success = db_manager.save_uart_data(db_data)
+                                    if success:
+                                        logging.debug(f"資料成功儲存到資料庫: MAC={data_entry['mac_id']}")
+                                    else:
+                                        logging.warning(f"資料儲存到資料庫失敗: MAC={data_entry['mac_id']}")
+                                        
+                                except Exception as db_e:
+                                    logging.error(f"資料庫儲存錯誤: {db_e}")
                             
                             # 離線模式：將資料保存到本地History資料夾
                             self._save_to_local_history(data_entry)
