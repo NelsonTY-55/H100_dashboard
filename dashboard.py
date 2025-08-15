@@ -2186,15 +2186,33 @@ def handle_single_uart_data(data, client_ip):
         # 如果有資料庫管理器，也存入資料庫
         if DATABASE_AVAILABLE and db_manager:
             try:
-                db_manager.insert_uart_data(
-                    mac_id=uart_data_entry['mac_id'],
-                    channel=uart_data_entry['channel'],
-                    parameter=uart_data_entry['parameter'],
-                    unit=uart_data_entry['unit'],
-                    timestamp=uart_data_entry['timestamp']
-                )
+                # 構建完整的數據結構用於資料庫存儲
+                db_data = {
+                    'timestamp': uart_data_entry['timestamp'],
+                    'mac_id': uart_data_entry['mac_id'],
+                    'device_type': data.get('device_type', 'Sensor'),
+                    'device_model': data.get('device_model', 'Unknown'),
+                    'factory_area': data.get('factory_area', '未指定廠區'),
+                    'floor_level': data.get('floor_level', '未指定樓層'),
+                    'raw_data': f'Channel:{uart_data_entry["channel"]}, Value:{uart_data_entry["parameter"]}{uart_data_entry["unit"]}',
+                    'parsed_data': f'{{"channel": {uart_data_entry["channel"]}, "value": {uart_data_entry["parameter"]}, "unit": "{uart_data_entry["unit"]}"}}',
+                    'current': uart_data_entry['parameter'] if uart_data_entry['unit'].lower() in ['a', 'amp', 'ampere'] else None,
+                    'temperature': uart_data_entry['parameter'] if uart_data_entry['unit'].lower() in ['c', 'celsius', '°c'] else None,
+                    'voltage': uart_data_entry['parameter'] if uart_data_entry['unit'].lower() in ['v', 'volt'] else None,
+                    'status': 'active',
+                    'source': 'raspberry_pi',
+                    'client_ip': client_ip
+                }
+                
+                # 使用 save_uart_data 方法存儲數據
+                if db_manager.save_uart_data(db_data):
+                    logging.info(f'樹莓派數據已成功存入資料庫: MAC={uart_data_entry["mac_id"]}, Value={uart_data_entry["parameter"]}{uart_data_entry["unit"]}')
+                else:
+                    logging.warning(f'樹莓派數據存入資料庫失敗: MAC={uart_data_entry["mac_id"]}')
+                    
             except Exception as db_error:
                 logging.error(f'存入資料庫失敗: {db_error}')
+                # 即使資料庫存儲失敗，也不影響 API 回應
         
         logging.info(f'成功接收樹莓派資料: MAC={data["mac_id"]}, Channel={data["channel"]}, Value={data["parameter"]}')
         
@@ -2358,16 +2376,33 @@ def receive_uart_data():
         # 如果有資料庫管理器，也存入資料庫
         if DATABASE_AVAILABLE and db_manager:
             try:
-                db_manager.insert_uart_data(
-                    mac_id=uart_data_entry['mac_id'],
-                    channel=uart_data_entry['channel'],
-                    parameter=uart_data_entry['parameter'],
-                    unit=uart_data_entry['unit'],
-                    timestamp=uart_data_entry['timestamp']
-                )
-                logging.info(f'UART資料已存入資料庫: MAC={data["mac_id"]}')
+                # 構建完整的數據結構用於資料庫存儲
+                db_data = {
+                    'timestamp': uart_data_entry['timestamp'],
+                    'mac_id': uart_data_entry['mac_id'],
+                    'device_type': data.get('device_type', 'Sensor'),
+                    'device_model': data.get('device_model', 'Unknown'),
+                    'factory_area': data.get('factory_area', '未指定廠區'),
+                    'floor_level': data.get('floor_level', '未指定樓層'),
+                    'raw_data': f'Channel:{uart_data_entry["channel"]}, Value:{uart_data_entry["parameter"]}{uart_data_entry["unit"]}',
+                    'parsed_data': f'{{"channel": {uart_data_entry["channel"]}, "value": {uart_data_entry["parameter"]}, "unit": "{uart_data_entry["unit"]}"}}',
+                    'current': uart_data_entry['parameter'] if uart_data_entry['unit'].lower() in ['a', 'amp', 'ampere'] else None,
+                    'temperature': uart_data_entry['parameter'] if uart_data_entry['unit'].lower() in ['c', 'celsius', '°c'] else None,
+                    'voltage': uart_data_entry['parameter'] if uart_data_entry['unit'].lower() in ['v', 'volt'] else None,
+                    'status': 'active',
+                    'source': 'raspberry_pi',
+                    'client_ip': client_ip
+                }
+                
+                # 使用 save_uart_data 方法存儲數據
+                if db_manager.save_uart_data(db_data):
+                    logging.info(f'UART資料已成功存入資料庫: MAC={data["mac_id"]}, Value={uart_data_entry["parameter"]}{uart_data_entry["unit"]}')
+                else:
+                    logging.warning(f'UART資料存入資料庫失敗: MAC={data["mac_id"]}')
+                    
             except Exception as db_error:
                 logging.error(f'存入資料庫失敗: {db_error}')
+                # 即使資料庫存儲失敗，也不影響 API 回應
         
         return jsonify({
             'success': True,
@@ -3289,7 +3324,18 @@ def get_database_statistics():
         })
     
     try:
-        stats = db_manager.get_statistics()
+        # 解析請求參數
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        
+        stats = db_manager.get_statistics(
+            factory_area=factory_area,
+            floor_level=floor_level,
+            mac_id=mac_id,
+            device_model=device_model
+        )
         return jsonify({
             'success': True,
             'data': stats
@@ -3393,6 +3439,310 @@ def get_database_device_info():
             'data': []
         })
 
+@app.route('/api/database/test-raspberry-pi-data', methods=['POST'])
+def add_test_raspberry_pi_data():
+    """測試樹莓派數據存儲功能（模擬樹莓派傳送的數據格式）"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用'
+        })
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # 模擬樹莓派傳送的實際數據格式
+        raspberry_pi_data = [
+            # 設備 1 - 電流感測器
+            {
+                'mac_id': 'RPI_001',
+                'channel': 1,
+                'parameter': 3.25,
+                'unit': 'A',
+                'device_type': 'Current_Sensor',
+                'device_model': 'CS100_RPI',
+                'factory_area': '生產線A區',
+                'floor_level': '1F',
+                'timestamp': (datetime.now() - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            {
+                'mac_id': 'RPI_001',
+                'channel': 2,
+                'parameter': 2.85,
+                'unit': 'A',
+                'device_type': 'Current_Sensor',
+                'device_model': 'CS100_RPI',
+                'factory_area': '生產線A區',
+                'floor_level': '1F',
+                'timestamp': (datetime.now() - timedelta(minutes=25)).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            
+            # 設備 2 - 溫度感測器
+            {
+                'mac_id': 'RPI_002',
+                'channel': 1,
+                'parameter': 24.5,
+                'unit': 'C',
+                'device_type': 'Temperature_Sensor',
+                'device_model': 'TS200_RPI',
+                'factory_area': '生產線B區',
+                'floor_level': '2F',
+                'timestamp': (datetime.now() - timedelta(minutes=20)).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            {
+                'mac_id': 'RPI_002',
+                'channel': 2,
+                'parameter': 26.8,
+                'unit': 'C',
+                'device_type': 'Temperature_Sensor',
+                'device_model': 'TS200_RPI',
+                'factory_area': '生產線B區',
+                'floor_level': '2F',
+                'timestamp': (datetime.now() - timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            
+            # 設備 3 - 電壓感測器
+            {
+                'mac_id': 'RPI_003',
+                'channel': 1,
+                'parameter': 220.5,
+                'unit': 'V',
+                'device_type': 'Voltage_Sensor',
+                'device_model': 'VS300_RPI',
+                'factory_area': '品檢區',
+                'floor_level': '1F',
+                'timestamp': (datetime.now() - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            {
+                'mac_id': 'RPI_003',
+                'channel': 2,
+                'parameter': 218.9,
+                'unit': 'V',
+                'device_type': 'Voltage_Sensor',
+                'device_model': 'VS300_RPI',
+                'factory_area': '品檢區',
+                'floor_level': '1F',
+                'timestamp': (datetime.now() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
+            },
+            
+            # 最新數據
+            {
+                'mac_id': 'RPI_001',
+                'channel': 1,
+                'parameter': 3.18,
+                'unit': 'A',
+                'device_type': 'Current_Sensor',
+                'device_model': 'CS100_RPI',
+                'factory_area': '生產線A區',
+                'floor_level': '1F',
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            },
+            {
+                'mac_id': 'RPI_002',
+                'channel': 1,
+                'parameter': 25.2,
+                'unit': 'C',
+                'device_type': 'Temperature_Sensor',
+                'device_model': 'TS200_RPI',
+                'factory_area': '生產線B區',
+                'floor_level': '2F',
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+        ]
+        
+        success_count = 0
+        failed_count = 0
+        
+        for item in raspberry_pi_data:
+            try:
+                # 構建資料庫數據格式
+                db_data = {
+                    'timestamp': item['timestamp'],
+                    'mac_id': item['mac_id'],
+                    'device_type': item['device_type'],
+                    'device_model': item['device_model'],
+                    'factory_area': item['factory_area'],
+                    'floor_level': item['floor_level'],
+                    'raw_data': f'Channel:{item["channel"]}, Value:{item["parameter"]}{item["unit"]}',
+                    'parsed_data': f'{{"channel": {item["channel"]}, "value": {item["parameter"]}, "unit": "{item["unit"]}"}}',
+                    'current': item['parameter'] if item['unit'].lower() in ['a', 'amp', 'ampere'] else None,
+                    'temperature': item['parameter'] if item['unit'].lower() in ['c', 'celsius', '°c'] else None,
+                    'voltage': item['parameter'] if item['unit'].lower() in ['v', 'volt'] else None,
+                    'status': 'active',
+                    'source': 'raspberry_pi_test'
+                }
+                
+                if db_manager.save_uart_data(db_data):
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    
+            except Exception as e:
+                logging.error(f'處理樹莓派測試數據失敗: {e}')
+                failed_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功存儲 {success_count}/{len(raspberry_pi_data)} 筆樹莓派模擬數據',
+            'success_count': success_count,
+            'failed_count': failed_count,
+            'total_count': len(raspberry_pi_data),
+            'data_info': {
+                'devices': ['RPI_001', 'RPI_002', 'RPI_003'],
+                'sensor_types': ['Current_Sensor', 'Temperature_Sensor', 'Voltage_Sensor'],
+                'areas': ['生產線A區', '生產線B區', '品檢區'],
+                'data_format': '模擬樹莓派實際傳送的數據格式'
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"添加樹莓派測試數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'添加樹莓派測試數據失敗: {str(e)}'
+        })
+
+@app.route('/api/database/test-current-data', methods=['POST'])
+def add_test_current_data():
+    """添加實際電流數據（用於測試圖表功能）"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用'
+        })
+    
+    try:
+        from datetime import datetime, timedelta
+        
+        # 定義實際的電流數據樣本 - 模擬真實工廠設備的電流變化
+        actual_current_data = [
+            # 早上8:00-12:00 正常工作時段 - 電流較高
+            {'time_offset': -480, 'current': 3.2, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -450, 'current': 3.15, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -420, 'current': 3.18, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -390, 'current': 3.22, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -360, 'current': 3.25, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            
+            # 中午12:00-13:00 午休時段 - 電流下降
+            {'time_offset': -330, 'current': 1.8, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -300, 'current': 1.5, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            
+            # 下午13:00-17:00 正常工作時段
+            {'time_offset': -270, 'current': 3.1, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -240, 'current': 3.28, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -210, 'current': 3.35, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -180, 'current': 3.42, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -150, 'current': 3.38, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            
+            # 晚上17:00-18:00 下班準備 - 電流逐漸下降
+            {'time_offset': -120, 'current': 2.8, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -90, 'current': 2.2, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -60, 'current': 1.9, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            
+            # 夜間待機模式 - 低電流
+            {'time_offset': -30, 'current': 0.8, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -15, 'current': 0.75, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            {'time_offset': -5, 'current': 0.82, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
+            
+            # 不同設備的數據
+            {'time_offset': -120, 'current': 2.5, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
+            {'time_offset': -60, 'current': 2.8, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
+            {'time_offset': -30, 'current': 2.6, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
+            {'time_offset': -10, 'current': 2.7, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
+            
+            {'time_offset': -180, 'current': 4.2, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
+            {'time_offset': -90, 'current': 4.5, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
+            {'time_offset': -45, 'current': 4.1, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
+            {'time_offset': -15, 'current': 3.9, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
+        ]
+        
+        success_count = 0
+        current_time = datetime.now()
+        
+        for data_point in actual_current_data:
+            # 計算時間戳（基於當前時間的偏移）
+            timestamp = current_time + timedelta(minutes=data_point['time_offset'])
+            
+            # 構建數據
+            current_data = {
+                'timestamp': timestamp,
+                'mac_id': data_point['mac_id'],
+                'device_type': 'Current_Sensor',
+                'device_model': data_point['model'],
+                'factory_area': data_point['area'],
+                'floor_level': data_point['floor'],
+                'raw_data': f'Current: {data_point["current"]}A',
+                'parsed_data': f'{{"current": {data_point["current"]}}}',
+                'current': data_point['current'],
+                'status': 'active'
+            }
+            
+            if db_manager.save_uart_data(current_data):
+                success_count += 1
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功添加 {success_count}/{len(actual_current_data)} 筆實際電流數據',
+            'added_count': success_count,
+            'data_info': {
+                'devices': ['MAC_001', 'MAC_002', 'MAC_003'],
+                'areas': ['A廠區', 'B廠區', 'C廠區'],
+                'time_span': '過去8小時的工廠運行數據',
+                'pattern': '包含正常工作時段、午休時段、下班時段和夜間待機模式'
+            }
+        })
+        
+    except Exception as e:
+        logging.error(f"添加實際電流數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'添加實際電流數據失敗: {str(e)}'
+        })
+
+@app.route('/api/database/raspberry-pi-stats')
+def get_raspberry_pi_stats():
+    """獲取樹莓派數據統計資訊"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': {}
+        })
+    
+    try:
+        # 獲取樹莓派相關的數據統計
+        stats = {
+            'total_raspberry_pi_data': 0,
+            'raspberry_pi_devices': [],
+            'latest_data_by_device': {},
+            'data_by_sensor_type': {}
+        }
+        
+        # 這裡可以調用 db_manager 的相關方法來獲取統計數據
+        # 如果 db_manager 有相應的方法，可以這樣調用：
+        try:
+            # 假設 db_manager 有獲取樹莓派數據的方法
+            rpi_stats = db_manager.get_statistics(source='raspberry_pi')
+            stats.update(rpi_stats)
+        except AttributeError:
+            # 如果沒有特定的方法，使用通用統計
+            general_stats = db_manager.get_statistics()
+            stats.update(general_stats)
+        
+        return jsonify({
+            'success': True,
+            'data': stats,
+            'message': '樹莓派數據統計獲取成功'
+        })
+        
+    except Exception as e:
+        logging.error(f"獲取樹莓派統計資訊失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取樹莓派統計資訊失敗: {str(e)}',
+            'data': {}
+        })
+
 # ====== 錯誤處理 ======
 
 @app.errorhandler(404)
@@ -3449,6 +3799,23 @@ if __name__ == '__main__':
         # 初始化樹莓派連接
         initialize_raspberry_pi_connection()
         
+        # 自動啟動 UART 讀取器以開始接收數據
+        if uart_reader:
+            try:
+                print("正在啟動 UART 讀取器...")
+                if uart_reader.start_reading():
+                    print("✓ UART 讀取器啟動成功，開始接收數據")
+                    if DATABASE_AVAILABLE:
+                        print("✓ 數據將自動存入資料庫")
+                    else:
+                        print("⚠ 資料庫不可用，數據僅存入 CSV 檔案")
+                else:
+                    print("✗ UART 讀取器啟動失敗")
+            except Exception as uart_e:
+                print(f"✗ UART 啟動錯誤: {uart_e}")
+        else:
+            print("⚠ UART 讀取器不可用")
+        
         # 啟動 Flask 應用程式 (使用不同的端口避免衝突)
         app.run(debug=True, host='0.0.0.0', port=5001)
         
@@ -3457,3 +3824,4 @@ if __name__ == '__main__':
         print("請檢查:")
         print("1. 端口 5001 是否被其他程式佔用")
         print("2. 相依套件是否已正確安裝")
+        print("3. UART 設備是否正確連接")
