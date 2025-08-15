@@ -2118,6 +2118,385 @@ def uart_stream():
                 time.sleep(2)
     return Response(generate(), mimetype='text/event-stream')
 
+@app.route('/api/uart/receive-from-pi', methods=['POST'])
+def receive_uart_from_pi():
+    """API: 接收來自樹莓派的UART資料"""
+    try:
+        # 記錄請求來源
+        client_ip = request.remote_addr
+        logging.info(f'收到來自樹莓派 {client_ip} 的UART資料')
+        
+        # 獲取JSON資料
+        data = request.get_json()
+        if not data:
+            logging.warning(f'來自 {client_ip} 的請求包含無效的JSON資料')
+            return jsonify({
+                'success': False, 
+                'message': '無效的JSON資料'
+            }), 400
+        
+        # 處理單筆或批量資料
+        if 'data_list' in data:
+            # 批量資料處理
+            return handle_batch_uart_data(data['data_list'], client_ip)
+        else:
+            # 單筆資料處理
+            return handle_single_uart_data(data, client_ip)
+            
+    except Exception as e:
+        logging.error(f'接收樹莓派UART資料時發生錯誤: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'處理資料時發生錯誤: {str(e)}'
+        }), 500
+
+def handle_single_uart_data(data, client_ip):
+    """處理單筆UART資料"""
+    try:
+        # 驗證必要欄位
+        required_fields = ['mac_id', 'channel', 'parameter', 'unit']
+        missing_fields = [field for field in required_fields if field not in data]
+        
+        if missing_fields:
+            logging.warning(f'資料缺少必要欄位: {missing_fields}')
+            return jsonify({
+                'success': False,
+                'message': f'缺少必要欄位: {", ".join(missing_fields)}'
+            }), 400
+        
+        # 準備資料格式
+        uart_data_entry = {
+            'timestamp': data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+            'mac_id': str(data['mac_id']),
+            'channel': int(data['channel']),
+            'parameter': float(data['parameter']),
+            'unit': str(data['unit']),
+            'source': 'raspberry_pi',
+            'client_ip': client_ip
+        }
+        
+        # 將資料加入UART讀取器
+        if uart_reader:
+            with uart_reader.lock:
+                uart_reader.latest_data.append(uart_data_entry)
+                # 限制資料數量，防止記憶體溢出
+                if len(uart_reader.latest_data) > 10000:
+                    uart_reader.latest_data = uart_reader.latest_data[-8000:]
+        
+        # 如果有資料庫管理器，也存入資料庫
+        if DATABASE_AVAILABLE and db_manager:
+            try:
+                db_manager.insert_uart_data(
+                    mac_id=uart_data_entry['mac_id'],
+                    channel=uart_data_entry['channel'],
+                    parameter=uart_data_entry['parameter'],
+                    unit=uart_data_entry['unit'],
+                    timestamp=uart_data_entry['timestamp']
+                )
+            except Exception as db_error:
+                logging.error(f'存入資料庫失敗: {db_error}')
+        
+        logging.info(f'成功接收樹莓派資料: MAC={data["mac_id"]}, Channel={data["channel"]}, Value={data["parameter"]}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'UART資料接收成功',
+            'received_at': datetime.now().isoformat(),
+            'data_count': len(uart_reader.latest_data) if uart_reader else 0
+        })
+        
+    except ValueError as ve:
+        logging.error(f'資料格式錯誤: {ve}')
+        return jsonify({
+            'success': False,
+            'message': f'資料格式錯誤: {str(ve)}'
+        }), 400
+        
+    except Exception as e:
+        logging.error(f'處理單筆資料錯誤: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'處理資料錯誤: {str(e)}'
+        }), 500
+
+def handle_batch_uart_data(data_list, client_ip):
+    """處理批量UART資料"""
+    try:
+        if not isinstance(data_list, list):
+            return jsonify({
+                'success': False,
+                'message': 'data_list 必須是陣列格式'
+            }), 400
+        
+        processed_count = 0
+        error_count = 0
+        errors = []
+        
+        required_fields = ['mac_id', 'channel', 'parameter', 'unit']
+        
+        for i, item in enumerate(data_list):
+            try:
+                # 驗證每個項目的欄位
+                missing_fields = [field for field in required_fields if field not in item]
+                if missing_fields:
+                    error_count += 1
+                    errors.append(f'項目 {i}: 缺少欄位 {missing_fields}')
+                    continue
+                
+                # 準備資料
+                uart_data_entry = {
+                    'timestamp': item.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                    'mac_id': str(item['mac_id']),
+                    'channel': int(item['channel']),
+                    'parameter': float(item['parameter']),
+                    'unit': str(item['unit']),
+                    'source': 'raspberry_pi_batch',
+                    'client_ip': client_ip
+                }
+                
+                # 加入UART讀取器
+                if uart_reader:
+                    with uart_reader.lock:
+                        uart_reader.latest_data.append(uart_data_entry)
+                
+                # 存入資料庫
+                if DATABASE_AVAILABLE and db_manager:
+                    try:
+                        db_manager.insert_uart_data(
+                            mac_id=uart_data_entry['mac_id'],
+                            channel=uart_data_entry['channel'],
+                            parameter=uart_data_entry['parameter'],
+                            unit=uart_data_entry['unit'],
+                            timestamp=uart_data_entry['timestamp']
+                        )
+                    except Exception as db_error:
+                        logging.error(f'批量資料項目 {i} 存入資料庫失敗: {db_error}')
+                
+                processed_count += 1
+                
+            except Exception as item_error:
+                error_count += 1
+                errors.append(f'項目 {i}: {str(item_error)}')
+        
+        # 限制資料數量
+        if uart_reader and len(uart_reader.latest_data) > 10000:
+            with uart_reader.lock:
+                uart_reader.latest_data = uart_reader.latest_data[-8000:]
+        
+        logging.info(f'批量處理完成: 成功 {processed_count} 筆，錯誤 {error_count} 筆')
+        
+        return jsonify({
+            'success': True,
+            'message': f'批量資料處理完成',
+            'processed_count': processed_count,
+            'error_count': error_count,
+            'total_count': len(data_list),
+            'errors': errors[:5],  # 只回傳前5個錯誤
+            'received_at': datetime.now().isoformat(),
+            'current_data_count': len(uart_reader.latest_data) if uart_reader else 0
+        })
+        
+    except Exception as e:
+        logging.error(f'批量處理錯誤: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'批量處理錯誤: {str(e)}'
+        }), 500
+
+@app.route('/api/uart/receive-data', methods=['POST'])
+def receive_uart_data():
+    """API: 接收來自樹莓派的UART資料"""
+    try:
+        # 記錄請求來源
+        client_ip = request.remote_addr
+        logging.info(f'收到來自 {client_ip} 的UART資料請求')
+        
+        # 獲取JSON資料
+        data = request.get_json()
+        if not data:
+            logging.warning(f'來自 {client_ip} 的請求包含無效的JSON資料')
+            return jsonify({
+                'success': False, 
+                'message': '無效的JSON資料',
+                'error_code': 'INVALID_JSON'
+            }), 400
+        
+        # 驗證必要欄位
+        required_fields = ['mac_id', 'channel', 'parameter', 'unit']
+        missing_fields = [field for field in required_fields if field not in data]
+        
+        if missing_fields:
+            logging.warning(f'來自 {client_ip} 的資料缺少必要欄位: {missing_fields}')
+            return jsonify({
+                'success': False,
+                'message': f'缺少必要欄位: {", ".join(missing_fields)}',
+                'missing_fields': missing_fields,
+                'error_code': 'MISSING_FIELDS'
+            }), 400
+        
+        # 準備資料格式
+        uart_data_entry = {
+            'timestamp': data.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+            'mac_id': str(data['mac_id']),
+            'channel': int(data['channel']),
+            'parameter': float(data['parameter']),
+            'unit': str(data['unit']),
+            'source': 'raspberry_pi',  # 標記資料來源
+            'client_ip': client_ip
+        }
+        
+        # 將資料加入UART讀取器
+        if uart_reader:
+            with uart_reader.lock:
+                uart_reader.latest_data.append(uart_data_entry)
+                # 限制資料數量，防止記憶體溢出
+                if len(uart_reader.latest_data) > 10000:
+                    uart_reader.latest_data = uart_reader.latest_data[-8000:]
+            
+            logging.info(f'成功接收來自 {client_ip} 的UART資料: MAC={data["mac_id"]}, Channel={data["channel"]}, Value={data["parameter"]}')
+        
+        # 如果有資料庫管理器，也存入資料庫
+        if DATABASE_AVAILABLE and db_manager:
+            try:
+                db_manager.insert_uart_data(
+                    mac_id=uart_data_entry['mac_id'],
+                    channel=uart_data_entry['channel'],
+                    parameter=uart_data_entry['parameter'],
+                    unit=uart_data_entry['unit'],
+                    timestamp=uart_data_entry['timestamp']
+                )
+                logging.info(f'UART資料已存入資料庫: MAC={data["mac_id"]}')
+            except Exception as db_error:
+                logging.error(f'存入資料庫失敗: {db_error}')
+        
+        return jsonify({
+            'success': True,
+            'message': 'UART資料接收成功',
+            'received_at': datetime.now().isoformat(),
+            'data_count': len(uart_reader.latest_data) if uart_reader else 0,
+            'processed_data': {
+                'mac_id': uart_data_entry['mac_id'],
+                'channel': uart_data_entry['channel'],
+                'parameter': uart_data_entry['parameter'],
+                'unit': uart_data_entry['unit']
+            }
+        })
+        
+    except ValueError as ve:
+        logging.error(f'資料格式錯誤來自 {request.remote_addr}: {ve}')
+        return jsonify({
+            'success': False,
+            'message': f'資料格式錯誤: {str(ve)}',
+            'error_code': 'VALUE_ERROR'
+        }), 400
+        
+    except Exception as e:
+        logging.error(f'接收UART資料時發生錯誤來自 {request.remote_addr}: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'處理資料時發生錯誤: {str(e)}',
+            'error_code': 'INTERNAL_ERROR'
+        }), 500
+
+@app.route('/api/uart/receive-batch', methods=['POST'])
+def receive_uart_batch():
+    """API: 批量接收來自樹莓派的UART資料"""
+    try:
+        client_ip = request.remote_addr
+        logging.info(f'收到來自 {client_ip} 的批量UART資料請求')
+        
+        data = request.get_json()
+        if not data or 'data_list' not in data:
+            return jsonify({
+                'success': False,
+                'message': '無效的批量資料格式，需要包含 data_list 陣列',
+                'error_code': 'INVALID_BATCH_FORMAT'
+            }), 400
+        
+        data_list = data['data_list']
+        if not isinstance(data_list, list):
+            return jsonify({
+                'success': False,
+                'message': 'data_list 必須是陣列格式',
+                'error_code': 'INVALID_DATA_LIST'
+            }), 400
+        
+        processed_count = 0
+        error_count = 0
+        errors = []
+        
+        required_fields = ['mac_id', 'channel', 'parameter', 'unit']
+        
+        for i, item in enumerate(data_list):
+            try:
+                # 驗證每個項目的欄位
+                missing_fields = [field for field in required_fields if field not in item]
+                if missing_fields:
+                    error_count += 1
+                    errors.append(f'項目 {i}: 缺少欄位 {missing_fields}')
+                    continue
+                
+                # 準備資料
+                uart_data_entry = {
+                    'timestamp': item.get('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S')),
+                    'mac_id': str(item['mac_id']),
+                    'channel': int(item['channel']),
+                    'parameter': float(item['parameter']),
+                    'unit': str(item['unit']),
+                    'source': 'raspberry_pi_batch',
+                    'client_ip': client_ip
+                }
+                
+                # 加入UART讀取器
+                if uart_reader:
+                    with uart_reader.lock:
+                        uart_reader.latest_data.append(uart_data_entry)
+                
+                # 存入資料庫
+                if DATABASE_AVAILABLE and db_manager:
+                    try:
+                        db_manager.insert_uart_data(
+                            mac_id=uart_data_entry['mac_id'],
+                            channel=uart_data_entry['channel'],
+                            parameter=uart_data_entry['parameter'],
+                            unit=uart_data_entry['unit'],
+                            timestamp=uart_data_entry['timestamp']
+                        )
+                    except Exception as db_error:
+                        logging.error(f'批量資料項目 {i} 存入資料庫失敗: {db_error}')
+                
+                processed_count += 1
+                
+            except Exception as item_error:
+                error_count += 1
+                errors.append(f'項目 {i}: {str(item_error)}')
+        
+        # 限制資料數量
+        if uart_reader and len(uart_reader.latest_data) > 10000:
+            with uart_reader.lock:
+                uart_reader.latest_data = uart_reader.latest_data[-8000:]
+        
+        logging.info(f'批量處理完成來自 {client_ip}: 成功 {processed_count} 筆，錯誤 {error_count} 筆')
+        
+        return jsonify({
+            'success': True,
+            'message': f'批量資料處理完成',
+            'processed_count': processed_count,
+            'error_count': error_count,
+            'total_count': len(data_list),
+            'errors': errors[:10],  # 只回傳前10個錯誤
+            'received_at': datetime.now().isoformat(),
+            'current_data_count': len(uart_reader.latest_data) if uart_reader else 0
+        })
+        
+    except Exception as e:
+        logging.error(f'批量接收UART資料時發生錯誤來自 {request.remote_addr}: {e}')
+        return jsonify({
+            'success': False,
+            'message': f'批量處理時發生錯誤: {str(e)}',
+            'error_code': 'BATCH_ERROR'
+        }), 500
+
 # ====== FTP相關API ======
 
 @app.route('/api/ftp/upload', methods=['POST'])

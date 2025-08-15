@@ -15,6 +15,14 @@ import platform
 from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 
+# 嘗試導入 requests，用於傳送資料到 Dashboard 服務
+try:
+    import requests
+    REQUESTS_AVAILABLE = True
+except ImportError:
+    REQUESTS_AVAILABLE = False
+    logging.warning("requests 模組未安裝，將無法傳送資料到 Dashboard 服務")
+
 # 嘗試導入 Flask-MonitoringDashboard，如果沒有安裝則跳過
 try:
     import flask_monitoringdashboard as dashboard
@@ -151,6 +159,201 @@ offline_mode_manager = create_offline_mode_manager(config_manager)
 # 啟動時自動偵測網路狀態
 network_mode = offline_mode_manager.auto_detect_mode()
 logging.info(f"系統啟動模式: {network_mode}")
+
+# Dashboard 資料傳送管理器
+class DashboardDataSender:
+    def __init__(self):
+        self.dashboard_url = "http://192.168.113.239:5000"  # 預設 Dashboard 服務地址
+        self.api_endpoint = "/api/uart/receive-from-pi"
+        self.enabled = REQUESTS_AVAILABLE
+        self.send_interval = 10  # 每10秒檢查一次
+        self.batch_size = 20  # 批量大小
+        self.last_sent_index = 0  # 記錄上次發送的資料索引
+        self.is_running = False
+        self.send_thread = None
+        self.send_queue = []
+        self.total_sent = 0
+        self.send_errors = 0
+        
+        # 從設定檔讀取 Dashboard 地址
+        self.load_dashboard_config()
+        
+    def load_dashboard_config(self):
+        """從設定檔載入 Dashboard 配置"""
+        try:
+            # 可以從設定檔或環境變數讀取
+            if hasattr(config_manager, 'get_dashboard_config'):
+                dashboard_config = config_manager.get_dashboard_config()
+                if dashboard_config and 'url' in dashboard_config:
+                    self.dashboard_url = dashboard_config['url']
+                    logging.info(f"從設定檔讀取 Dashboard 地址: {self.dashboard_url}")
+        except Exception as e:
+            logging.warning(f"載入 Dashboard 設定失敗，使用預設地址: {e}")
+    
+    def set_dashboard_url(self, url):
+        """設定 Dashboard 服務地址"""
+        self.dashboard_url = url
+        logging.info(f"Dashboard 服務地址已更新為: {self.dashboard_url}")
+    
+    def send_single_data(self, data):
+        """發送單筆資料到 Dashboard"""
+        if not self.enabled:
+            return False, "requests 模組未安裝"
+            
+        try:
+            url = f"{self.dashboard_url}{self.api_endpoint}"
+            response = requests.post(
+                url,
+                json=data,
+                headers={'Content-Type': 'application/json'},
+                timeout=10
+            )
+            
+            if response.status_code == 200:
+                self.total_sent += 1
+                logging.debug(f"成功發送資料到 Dashboard: MAC={data.get('mac_id')}")
+                return True, "發送成功"
+            else:
+                self.send_errors += 1
+                logging.error(f"發送資料失敗: HTTP {response.status_code}")
+                return False, f"HTTP錯誤: {response.status_code}"
+                
+        except requests.exceptions.ConnectionError:
+            self.send_errors += 1
+            logging.error(f"無法連接到 Dashboard 服務: {self.dashboard_url}")
+            return False, "連接失敗"
+        except requests.exceptions.Timeout:
+            self.send_errors += 1
+            logging.error("發送資料超時")
+            return False, "發送超時"
+        except Exception as e:
+            self.send_errors += 1
+            logging.error(f"發送資料錯誤: {e}")
+            return False, str(e)
+    
+    def send_batch_data(self, data_list):
+        """批量發送資料到 Dashboard"""
+        if not self.enabled:
+            return False, "requests 模組未安裝"
+            
+        try:
+            batch_data = {'data_list': data_list}
+            url = f"{self.dashboard_url}{self.api_endpoint}"
+            
+            response = requests.post(
+                url,
+                json=batch_data,
+                headers={'Content-Type': 'application/json'},
+                timeout=15
+            )
+            
+            if response.status_code == 200:
+                self.total_sent += len(data_list)
+                logging.info(f"成功批量發送 {len(data_list)} 筆資料到 Dashboard")
+                return True, f"批量發送成功: {len(data_list)} 筆"
+            else:
+                self.send_errors += 1
+                logging.error(f"批量發送失敗: HTTP {response.status_code}")
+                return False, f"HTTP錯誤: {response.status_code}"
+                
+        except Exception as e:
+            self.send_errors += 1
+            logging.error(f"批量發送錯誤: {e}")
+            return False, str(e)
+    
+    def data_sender_worker(self):
+        """資料發送工作執行緒"""
+        logging.info("🚀 Dashboard 資料發送服務已啟動")
+        
+        while self.is_running:
+            try:
+                if not uart_reader or not uart_reader.latest_data:
+                    time.sleep(self.send_interval)
+                    continue
+                
+                # 獲取新資料
+                with uart_reader.lock:
+                    current_data = uart_reader.latest_data.copy()
+                
+                # 找出需要發送的新資料
+                if len(current_data) > self.last_sent_index:
+                    new_data = current_data[self.last_sent_index:]
+                    
+                    if len(new_data) > 0:
+                        # 準備發送資料，確保格式正確
+                        prepared_data = []
+                        for item in new_data:
+                            # 確保資料格式符合 Dashboard API 需求
+                            if isinstance(item, dict) and all(key in item for key in ['mac_id', 'channel', 'parameter', 'unit']):
+                                prepared_data.append(item)
+                        
+                        if prepared_data:
+                            if len(prepared_data) == 1:
+                                # 單筆資料
+                                success, message = self.send_single_data(prepared_data[0])
+                            else:
+                                # 批量資料
+                                success, message = self.send_batch_data(prepared_data)
+                            
+                            if success:
+                                self.last_sent_index = len(current_data)
+                                logging.debug(f"已發送 {len(prepared_data)} 筆資料到 Dashboard")
+                            else:
+                                logging.warning(f"發送資料失敗: {message}")
+                
+                time.sleep(self.send_interval)
+                
+            except Exception as e:
+                logging.error(f"資料發送執行緒錯誤: {e}")
+                time.sleep(self.send_interval)
+        
+        logging.info("📤 Dashboard 資料發送服務已停止")
+    
+    def start(self):
+        """啟動資料發送服務"""
+        if not self.enabled:
+            logging.warning("無法啟動 Dashboard 資料發送服務: requests 模組未安裝")
+            return False
+            
+        if self.is_running:
+            logging.warning("Dashboard 資料發送服務已在運行中")
+            return False
+        
+        self.is_running = True
+        self.send_thread = threading.Thread(target=self.data_sender_worker, daemon=True)
+        self.send_thread.start()
+        logging.info(f"✅ Dashboard 資料發送服務已啟動，目標: {self.dashboard_url}")
+        return True
+    
+    def stop(self):
+        """停止資料發送服務"""
+        if not self.is_running:
+            return False
+            
+        self.is_running = False
+        if self.send_thread:
+            self.send_thread.join(timeout=5)
+        logging.info("🛑 Dashboard 資料發送服務已停止")
+        return True
+    
+    def get_status(self):
+        """獲取發送狀態"""
+        return {
+            'enabled': self.enabled,
+            'running': self.is_running,
+            'dashboard_url': self.dashboard_url,
+            'total_sent': self.total_sent,
+            'send_errors': self.send_errors,
+            'last_sent_index': self.last_sent_index,
+            'send_interval': self.send_interval
+        }
+
+# 初始化 Dashboard 資料發送器
+dashboard_sender = DashboardDataSender()
+
+# 如果 UART 正在運行，自動啟動資料發送
+if uart_reader and uart_reader.is_running:
+    dashboard_sender.start()
 
 # 本地FTP測試伺服器管理
 class LocalFTPServer:
@@ -1341,6 +1544,14 @@ def start_uart():
             message = 'UART讀取已開始'
             if offline_mode:
                 message += '（離線模式）'
+            else:
+                # 在線模式下啟動資料發送到 Dashboard
+                if dashboard_sender.enabled and not dashboard_sender.is_running:
+                    if dashboard_sender.start():
+                        message += '，資料發送服務已啟動'
+                    else:
+                        message += '，但資料發送服務啟動失敗'
+            
             return jsonify({'success': True, 'message': message})
         else:
             # 提供更詳細的錯誤診斷
@@ -1373,7 +1584,16 @@ def stop_uart():
     logging.info(f'API: 停止UART讀取, remote_addr={request.remote_addr}')
     try:
         uart_reader.stop_reading()
-        return jsonify({'success': True, 'message': 'UART讀取已停止'})
+        
+        # 同時停止資料發送服務
+        message = 'UART讀取已停止'
+        if dashboard_sender.is_running:
+            if dashboard_sender.stop():
+                message += '，資料發送服務已停止'
+            else:
+                message += '，但資料發送服務停止失敗'
+        
+        return jsonify({'success': True, 'message': message})
     except Exception as e:
         logging.exception(f'停止UART時發生錯誤: {str(e)}')
         return jsonify({'success': False, 'message': f'停止UART時發生錯誤: {str(e)}'})
@@ -2476,6 +2696,145 @@ def test_connection_to_host(host, port, timeout, protocol):
                 
     except Exception as e:
         return False, f"連接測試異常: {str(e)}"
+
+# Dashboard 資料發送相關 API
+@app.route('/api/dashboard-sender/status')
+def get_dashboard_sender_status():
+    """API: 獲取 Dashboard 資料發送狀態"""
+    try:
+        status = dashboard_sender.get_status()
+        return jsonify({
+            'success': True,
+            'status': status
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'獲取狀態失敗: {str(e)}'
+        })
+
+@app.route('/api/dashboard-sender/config', methods=['GET', 'POST'])
+def dashboard_sender_config():
+    """API: 設定 Dashboard 資料發送配置"""
+    if request.method == 'GET':
+        try:
+            return jsonify({
+                'success': True,
+                'config': {
+                    'dashboard_url': dashboard_sender.dashboard_url,
+                    'send_interval': dashboard_sender.send_interval,
+                    'batch_size': dashboard_sender.batch_size,
+                    'enabled': dashboard_sender.enabled
+                }
+            })
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'獲取配置失敗: {str(e)}'
+            })
+    
+    elif request.method == 'POST':
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({
+                    'success': False,
+                    'message': '無效的JSON資料'
+                }), 400
+            
+            # 更新配置
+            if 'dashboard_url' in data:
+                dashboard_sender.set_dashboard_url(data['dashboard_url'])
+            
+            if 'send_interval' in data:
+                dashboard_sender.send_interval = int(data['send_interval'])
+            
+            if 'batch_size' in data:
+                dashboard_sender.batch_size = int(data['batch_size'])
+            
+            return jsonify({
+                'success': True,
+                'message': '配置已更新',
+                'config': {
+                    'dashboard_url': dashboard_sender.dashboard_url,
+                    'send_interval': dashboard_sender.send_interval,
+                    'batch_size': dashboard_sender.batch_size,
+                    'enabled': dashboard_sender.enabled
+                }
+            })
+            
+        except Exception as e:
+            return jsonify({
+                'success': False,
+                'message': f'更新配置失敗: {str(e)}'
+            }), 500
+
+@app.route('/api/dashboard-sender/start', methods=['POST'])
+def start_dashboard_sender():
+    """API: 啟動 Dashboard 資料發送服務"""
+    try:
+        if dashboard_sender.start():
+            return jsonify({
+                'success': True,
+                'message': 'Dashboard 資料發送服務已啟動'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Dashboard 資料發送服務啟動失敗'
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'啟動服務失敗: {str(e)}'
+        })
+
+@app.route('/api/dashboard-sender/stop', methods=['POST'])
+def stop_dashboard_sender():
+    """API: 停止 Dashboard 資料發送服務"""
+    try:
+        if dashboard_sender.stop():
+            return jsonify({
+                'success': True,
+                'message': 'Dashboard 資料發送服務已停止'
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'message': 'Dashboard 資料發送服務停止失敗'
+            })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'停止服務失敗: {str(e)}'
+        })
+
+@app.route('/api/dashboard-sender/test', methods=['POST'])
+def test_dashboard_connection():
+    """API: 測試 Dashboard 連接"""
+    try:
+        # 發送測試資料
+        test_data = {
+            'mac_id': 'TEST:TEST:TEST',
+            'channel': 0,
+            'parameter': 99.9,
+            'unit': 'TEST',
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        success, message = dashboard_sender.send_single_data(test_data)
+        
+        return jsonify({
+            'success': success,
+            'message': f'連接測試: {message}',
+            'dashboard_url': dashboard_sender.dashboard_url
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'測試連接失敗: {str(e)}'
+        })
 
 if __name__ == '__main__':
     # Windows 編碼問題處理
