@@ -3,14 +3,160 @@ Dashboard API 服務
 獨立的 Dashboard 和設備設定管理 API 服務
 """
 
+# === 清理可能有問題的模組 ===
+import sys
+import os
+
+# 清理可能導致循環導入的模組
+problematic_modules = ['charset_normalizer', 'urllib3', 'certifi']
+for module in problematic_modules:
+    if module in sys.modules:
+        del sys.modules[module]
+
+# === 標準庫導入 ===
+import json
+import logging
+import platform
+import time
+import threading
+import glob
+import socket
+import subprocess
+import ftplib
+import csv
+import math
+import random
+import urllib.request
+import urllib.parse
+import urllib.error
+import functools
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
+
+# === Flask 相關導入 ===
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, make_response, Response, session
+
+# === 專案模組導入 ===
 from config_manager import ConfigManager
-from uart_integrated import uart_reader, protocol_manager
+# 注意：dashboard.py 運行在獨立主機上，不直接導入 uart_integrated
 from network_utils import network_checker, create_offline_mode_manager
 from device_settings import DeviceSettingsManager
 from multi_device_settings import MultiDeviceSettingsManager
 
-# 導入資料庫管理器
+# === 遠程數據獲取配置 ===
+# 配置樹梅派的 IP 地址和端口
+RASPBERRY_PI_HOST = os.getenv('RASPBERRY_PI_HOST', '192.168.113.239')  # 請修改為實際的樹梅派 IP
+RASPBERRY_PI_PORT = os.getenv('RASPBERRY_PI_PORT', '5000')  # app_integrated.py 的端口
+
+# Dashboard 模式配置：True = 獨立主機模式，False = 與 UART 在同一主機
+DASHBOARD_STANDALONE_MODE = os.getenv('DASHBOARD_STANDALONE_MODE', 'True').lower() == 'true'
+
+# === 安全導入 requests ===
+# 嘗試導入 requests 用於遠程數據獲取
+REQUESTS_AVAILABLE = False
+requests = None
+
+def safe_import_requests():
+    """安全地導入 requests 模組"""
+    global requests, REQUESTS_AVAILABLE
+    
+    if REQUESTS_AVAILABLE:
+        return True
+    
+    try:
+        # 清理可能有問題的相關模組
+        cleanup_modules = ['requests', 'urllib3', 'charset_normalizer', 'certifi', 'idna']
+        for module in cleanup_modules:
+            if module in sys.modules:
+                del sys.modules[module]
+        
+        # 重新導入 requests
+        import requests
+        REQUESTS_AVAILABLE = True
+        logging.info("requests 模組導入成功")
+        return True
+        
+    except ImportError as e:
+        logging.warning(f"requests 模組未安裝: {e}")
+        REQUESTS_AVAILABLE = False
+        return False
+    except Exception as e:
+        logging.error(f"導入 requests 時發生錯誤: {e}")
+        REQUESTS_AVAILABLE = False
+        return False
+
+# 嘗試導入 requests
+safe_import_requests()
+
+def get_data_from_raspberry_pi(endpoint, timeout=10):
+    """從樹梅派獲取數據的通用函數"""
+    if not REQUESTS_AVAILABLE or not DASHBOARD_STANDALONE_MODE:
+        return None
+    
+    try:
+        url = f"http://{RASPBERRY_PI_HOST}:{RASPBERRY_PI_PORT}{endpoint}"
+        response = requests.get(url, timeout=timeout)
+        if response.status_code == 200:
+            return response.json()
+        else:
+            logging.warning(f"從樹梅派獲取數據失敗: {response.status_code}")
+            return None
+    except Exception as e:
+        logging.warning(f"無法連接到樹梅派 {RASPBERRY_PI_HOST}:{RASPBERRY_PI_PORT}: {e}")
+        return None
+
+# 模擬的 uart_reader 和 protocol_manager (僅在獨立模式下使用)
+class MockUartReader:
+    """模擬的 UART 讀取器，用於獨立模式"""
+    def __init__(self):
+        self.is_running = False
+    
+    def test_uart_connection(self):
+        return False, "Dashboard 運行在獨立模式，UART 功能不可用"
+    
+    def list_available_ports(self):
+        return []
+    
+    def start_reading(self):
+        return False
+    
+    def stop_reading(self):
+        pass
+    
+    def clear_data(self):
+        pass
+    
+    def get_uart_config(self):
+        return "N/A", 9600, 8, 1, "N", 1
+    
+    def get_latest_data(self):
+        return []
+
+class MockProtocolManager:
+    """模擬的協定管理器，用於獨立模式"""
+    def __init__(self):
+        self.active = None
+    
+    def start(self, protocol):
+        pass
+
+# 根據模式設置 uart_reader 和 protocol_manager
+if DASHBOARD_STANDALONE_MODE:
+    uart_reader = MockUartReader()
+    protocol_manager = MockProtocolManager()
+    logging.info("Dashboard 運行在獨立主機模式")
+else:
+    # 如果不是獨立模式，嘗試導入真實的模組
+    try:
+        from uart_integrated import uart_reader, protocol_manager
+        logging.info("Dashboard 運行在本地模式，已載入 UART 模組")
+    except ImportError:
+        uart_reader = MockUartReader()
+        protocol_manager = MockProtocolManager()
+        logging.warning("無法載入 UART 模組，使用模擬模式")
+
+# === 資料庫模組導入 ===
 try:
     from database_manager import db_manager
     DATABASE_AVAILABLE = True
@@ -20,54 +166,14 @@ except ImportError as e:
     DATABASE_AVAILABLE = False
     db_manager = None
 
-import os
-import json
-import logging
-import platform
-import sys
-import time
-import threading
-import glob
+# === 修復 charset_normalizer 循環導入問題 ===
+# 在文件開頭已經導入了 requests，這裡不需要重複導入
+# 如果 requests 在開頭導入失敗，REQUESTS_AVAILABLE 變數已經設置為 False
 
-# 修復 charset_normalizer 循環導入問題
-import sys
-if 'charset_normalizer' in sys.modules:
-    del sys.modules['charset_normalizer']
+# 為了向後兼容，設置小寫變數名稱
+requests_available = REQUESTS_AVAILABLE
 
-# 安全導入 requests，避免 charset_normalizer 問題
-requests = None
-requests_available = False
-try:
-    import requests
-    requests_available = True
-except (ImportError, AttributeError) as e:
-    print(f"requests 導入錯誤: {e}")
-    print("嘗試使用替代方案...")
-    try:
-        # 清理可能有問題的模組
-        modules_to_clean = ['charset_normalizer', 'urllib3']
-        for module in modules_to_clean:
-            if module in sys.modules:
-                del sys.modules[module]
-        
-        # 重新嘗試導入
-        import requests
-        requests_available = True
-        print("requests 重新導入成功")
-    except Exception as e2:
-        print(f"requests 無法導入: {e2}")
-        print("將使用 urllib 作為替代方案")
-        requests = None
-        requests_available = False
-
-# 無論如何都要導入 urllib 作為備選
-import urllib.request
-import urllib.parse
-import urllib.error
-
-from datetime import datetime, timedelta
-
-# 嘗試導入 psutil，如果沒有安裝則跳過
+# === 可選模組導入 ===
 try:
     import psutil
     PSUTIL_AVAILABLE = True
@@ -75,7 +181,139 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     print("psutil 未安裝，系統監控功能將受限，可以執行 'pip install psutil' 來安裝")
 
-# 設定日誌
+try:
+    from pyftpdlib.authorizers import DummyAuthorizer
+    from pyftpdlib.handlers import FTPHandler
+    from pyftpdlib.servers import FTPServer
+    PYFTPDLIB_AVAILABLE = True
+except ImportError:
+    PYFTPDLIB_AVAILABLE = False
+    print("pyftpdlib 未安裝，FTP 功能將受限")
+
+# === 快取機制 ===
+
+class SimpleCache:
+    """簡單的記憶體快取實現"""
+    def __init__(self, max_size=100, ttl=300):  # 預設5分鐘TTL
+        self.cache = {}
+        self.timestamps = {}
+        self.max_size = max_size
+        self.ttl = ttl
+    
+    def get(self, key):
+        if key not in self.cache:
+            return None
+        
+        # 檢查是否過期
+        if time.time() - self.timestamps[key] > self.ttl:
+            del self.cache[key]
+            del self.timestamps[key]
+            return None
+        
+        return self.cache[key]
+    
+    def set(self, key, value):
+        # 如果快取滿了，移除最舊的項目
+        if len(self.cache) >= self.max_size:
+            oldest_key = min(self.timestamps.keys(), key=lambda k: self.timestamps[k])
+            del self.cache[oldest_key]
+            del self.timestamps[oldest_key]
+        
+        self.cache[key] = value
+        self.timestamps[key] = time.time()
+    
+    def clear(self):
+        self.cache.clear()
+        self.timestamps.clear()
+
+# 全域快取實例
+api_cache = SimpleCache(max_size=50, ttl=60)  # API快取，1分鐘TTL
+data_cache = SimpleCache(max_size=200, ttl=300)  # 數據快取，5分鐘TTL
+
+def cached_api_response(cache_key_func):
+    """API響應快取裝飾器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            # 生成快取鍵
+            cache_key = cache_key_func(*args, **kwargs)
+            
+            # 嘗試從快取獲取
+            cached_result = api_cache.get(cache_key)
+            if cached_result:
+                return cached_result
+            
+            # 執行原函數
+            result = func(*args, **kwargs)
+            
+            # 只快取成功的響應
+            if hasattr(result, 'get_json') and result.get_json().get('success'):
+                api_cache.set(cache_key, result)
+            
+            return result
+        return wrapper
+    return decorator
+
+# === 性能優化和工具函數 ===
+
+class PerformanceTimer:
+    """性能計時器"""
+    def __init__(self, operation_name):
+        self.operation_name = operation_name
+        self.start_time = None
+    
+    def __enter__(self):
+        self.start_time = time.time()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        duration = time.time() - self.start_time
+        if duration > 1.0:  # 只記錄超過1秒的操作
+            logging.info(f"{self.operation_name} 執行時間: {duration:.2f}秒")
+
+def safe_json_response(success, message, data=None, **kwargs):
+    """安全的JSON響應生成器"""
+    response = {
+        'success': success,
+        'message': message,
+        'timestamp': datetime.now().isoformat()
+    }
+    
+    if data is not None:
+        response['data'] = data
+    
+    response.update(kwargs)
+    return jsonify(response)
+
+def validate_request_data(required_fields, data):
+    """驗證請求數據的必要欄位"""
+    if not data:
+        return False, "缺少請求數據"
+    
+    missing_fields = [field for field in required_fields if field not in data]
+    if missing_fields:
+        return False, f"缺少必要欄位: {', '.join(missing_fields)}"
+    
+    return True, None
+
+def handle_api_error(operation_name):
+    """API錯誤處理裝飾器"""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            try:
+                with PerformanceTimer(operation_name):
+                    return func(*args, **kwargs)
+            except Exception as e:
+                logging.error(f"{operation_name} 失敗: {e}")
+                return safe_json_response(
+                    success=False,
+                    message=f"{operation_name} 失敗: {str(e)}"
+                )
+        return wrapper
+    return decorator
+
+# === 設定日誌與應用初始化 ===
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] [Dashboard] %(message)s',
@@ -90,11 +328,13 @@ app.secret_key = 'dashboard_secret_key_2025'
 
 # 樹莓派 API 配置 - 支援動態配置
 RASPBERRY_PI_CONFIG = {
-    'host': '192.168.113.239',  # 預設IP地址
+    'host': '192.168.113.239',  # 實際樹莓派地址
     'port': 5000,
     'timeout': 10,
     'auto_discover': True,      # 是否啟用自動發現
     'backup_hosts': [           # 備用IP地址列表
+        '127.0.0.1',            # 本地測試地址
+        '192.168.113.244',
         '192.168.1.100',
         '192.168.50.1', 
         '10.0.0.100'
@@ -107,10 +347,6 @@ def get_raspberry_pi_url():
 
 def discover_raspberry_pi():
     """自動發現樹莓派設備"""
-    import socket
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    
     discovered_devices = []
     
     def check_host(ip):
@@ -266,11 +502,6 @@ def call_raspberry_pi_api(endpoint, method='GET', data=None, timeout=None):
     else:
         # 使用 urllib 作為備選方案
         try:
-            import urllib.request
-            import urllib.error
-            import urllib.parse
-            import json
-            
             if method.upper() == 'GET':
                 req = urllib.request.Request(url)
             elif method.upper() == 'POST':
@@ -554,6 +785,13 @@ def get_system_info():
 def safe_get_uart_data():
     """安全地獲取UART數據"""
     try:
+        # 在獨立模式下，優先從樹梅派獲取數據
+        if DASHBOARD_STANDALONE_MODE:
+            remote_data = get_data_from_raspberry_pi('/api/uart/status')
+            if remote_data and remote_data.get('success'):
+                return remote_data.get('latest_data', [])
+        
+        # 本地模式或遠程獲取失敗時使用本地 uart_reader
         if uart_reader and hasattr(uart_reader, 'get_latest_data'):
             return uart_reader.get_latest_data()
         return []
@@ -1442,56 +1680,43 @@ def get_uart_mac_ids():
         # 記錄 API 請求
         logging.info(f'API請求: /api/uart/mac-ids from {request.remote_addr}')
         
-        # 優先嘗試從 uart_reader 獲取數據
+        # 嘗試從樹梅派獲取即時數據
         data = []
-        data_source = "直接讀取"
+        data_source = "本地文件"
         
-        if uart_reader and hasattr(uart_reader, 'get_latest_data'):
-            try:
-                data = uart_reader.get_latest_data()
-                logging.info(f'UART數據總數: {len(data) if data else 0}')
-                data_source = 'UART即時數據'
-                
-                # 修正：如果即時數據為空或MAC ID數量少於預期，強制載入歷史數據
-                if not data or len(set(entry.get('mac_id') for entry in data if entry.get('mac_id') and entry.get('mac_id') not in ['N/A', '', None])) < 1:
-                    logging.info('即時數據不足，嘗試從歷史文件載入MAC ID')
-                    if hasattr(uart_reader, 'load_historical_data'):
-                        uart_reader.load_historical_data(days_back=7)  # 載入最近7天的數據
-                        data = uart_reader.get_latest_data()
-                        data_source = '歷史文件增強載入'
-                        logging.info(f'從歷史文件增強載入數據: {len(data) if data else 0} 筆')
-            except Exception as e:
-                logging.warning(f"從uart_reader獲取數據失敗: {e}")
-                data = []
+        # 優先嘗試從樹梅派獲取即時數據
+        remote_data = get_data_from_raspberry_pi('/api/uart/mac-ids')
+        if remote_data and remote_data.get('success'):
+            logging.info(f'成功從樹梅派獲取 MAC ID: {remote_data.get("mac_ids", [])}')
+            return jsonify(remote_data)
         
-        # 如果沒有即時數據，嘗試從文件獲取
-        if not data:
-            logging.info("嘗試從History文件獲取數據")
-            data_info = get_uart_data_from_files()
-            if data_info.get('success'):
-                # 從分組的通道數據中提取所有原始數據
-                data = []
-                for channel_data in data_info.get('data', []):
-                    for data_point in channel_data.get('data', []):
-                        data.append({
-                            'mac_id': channel_data.get('mac_id', 'N/A'),
-                            'channel': channel_data.get('channel', 0),
-                            'timestamp': data_point.get('timestamp'),
-                            'parameter': data_point.get('parameter'),
-                            'unit': channel_data.get('unit', 'N/A')
-                        })
-                data_source = "歷史文件"
-                logging.info(f'從文件獲取到 {len(data)} 筆數據')
-            else:
-                logging.warning(f"從文件獲取數據失敗: {data_info.get('error', '未知錯誤')}")
-        
+        # 如果無法從樹梅派獲取數據，則從本地文件獲取
+        logging.info("無法從樹梅派獲取數據，嘗試從本地History文件獲取數據")
+        data_info = get_uart_data_from_files()
+        if data_info.get('success'):
+            # 從分組的通道數據中提取所有原始數據
+            data = []
+            for channel_data in data_info.get('data', []):
+                for data_point in channel_data.get('data', []):
+                    data.append({
+                        'mac_id': channel_data.get('mac_id', 'N/A'),
+                        'channel': channel_data.get('channel', 0),
+                        'timestamp': data_point.get('timestamp'),
+                        'parameter': data_point.get('parameter'),
+                        'unit': channel_data.get('unit', 'N/A')
+                    })
+            data_source = "本地歷史文件"
+            logging.info(f'從本地文件獲取到 {len(data)} 筆數據')
+        else:
+            logging.warning(f"從本地文件獲取數據失敗: {data_info.get('error', '未知錯誤')}")
+
         if not data:
             logging.warning('沒有可用的UART數據')
             return jsonify({
                 'success': True, 
                 'mac_ids': [], 
                 'data_source': data_source,
-                'message': '暫無UART數據，請先啟動UART讀取或檢查歷史數據'
+                'message': '暫無UART數據，請檢查樹梅派連接或本地歷史數據'
             })
         
         # 從UART數據中提取所有的MAC ID
@@ -1538,17 +1763,26 @@ def get_uart_mac_ids():
 def get_uart_mac_channels(mac_id=None):
     """API: 獲取指定MAC ID的通道資訊，或所有MAC ID的通道統計"""
     try:
-        # 優先嘗試從 uart_reader 獲取數據
+        # 嘗試從樹梅派獲取即時數據
         data = []
-        data_source = "直接讀取"
+        data_source = "本地文件"
         
-        if 'uart_reader' in globals() and uart_reader and hasattr(uart_reader, 'get_latest_data'):
+        # 在獨立模式下，優先從樹梅派獲取數據
+        if DASHBOARD_STANDALONE_MODE:
+            endpoint = f'/api/uart/mac-channels/{mac_id}' if mac_id else '/api/uart/mac-channels/'
+            remote_data = get_data_from_raspberry_pi(endpoint)
+            if remote_data and remote_data.get('success'):
+                logging.info(f'成功從樹梅派獲取通道數據: MAC ID {mac_id}')
+                return jsonify(remote_data)
+        
+        # 本地模式或遠程獲取失敗時，嘗試從本地獲取數據
+        if hasattr(uart_reader, 'get_latest_data') and uart_reader.get_latest_data():
             try:
                 data = uart_reader.get_latest_data()
                 if data:
-                    data_source = "即時數據"
+                    data_source = "本地即時數據"
             except Exception as e:
-                logging.warning(f"從uart_reader獲取數據失敗: {e}")
+                logging.warning(f"從本地uart_reader獲取數據失敗: {e}")
         
         # 如果沒有即時數據，嘗試從文件獲取
         if not data:
@@ -1566,7 +1800,7 @@ def get_uart_mac_channels(mac_id=None):
                             'parameter': data_point.get('parameter'),
                             'unit': channel_data.get('unit', 'A')
                         })
-                data_source = "歷史文件"
+                data_source = "本地歷史文件"
                 logging.info(f"從歷史文件載入了 {len(data)} 筆原始數據")
             else:
                 logging.warning(f"從文件獲取數據失敗: {data_info.get('error', '未知錯誤')}")
@@ -1575,7 +1809,7 @@ def get_uart_mac_channels(mac_id=None):
             return jsonify({
                 'success': True, 
                 'data': [], 
-                'message': '暫無UART數據，請先啟動UART讀取或檢查數據文件'
+                'message': '暫無UART數據，請檢查樹梅派連接或本地數據文件'
             })
 
         logging.info(f"總共處理 {len(data)} 筆UART數據，來源: {data_source}")
@@ -1930,6 +2164,15 @@ def api_start_protocol():
 def test_uart_connection():
     """API: 測試UART連接"""
     try:
+        # 在獨立模式下，將請求轉發到樹梅派
+        if DASHBOARD_STANDALONE_MODE:
+            remote_data = get_data_from_raspberry_pi('/api/uart/test')
+            if remote_data:
+                return jsonify(remote_data)
+            else:
+                return jsonify({'success': False, 'message': '無法連接到樹梅派 UART 服務'})
+        
+        # 本地模式
         success, message = uart_reader.test_uart_connection()
         return jsonify({'success': success, 'message': message})
     except Exception as e:
@@ -1939,6 +2182,15 @@ def test_uart_connection():
 def list_uart_ports():
     """API: 列出可用的串口"""
     try:
+        # 在獨立模式下，將請求轉發到樹梅派
+        if DASHBOARD_STANDALONE_MODE:
+            remote_data = get_data_from_raspberry_pi('/api/uart/ports')
+            if remote_data:
+                return jsonify(remote_data)
+            else:
+                return jsonify({'success': False, 'message': '無法連接到樹梅派 UART 服務', 'ports': []})
+        
+        # 本地模式
         ports = uart_reader.list_available_ports()
         return jsonify({'success': True, 'ports': ports})
     except Exception as e:
@@ -3439,265 +3691,497 @@ def get_database_device_info():
             'data': []
         })
 
-@app.route('/api/database/test-raspberry-pi-data', methods=['POST'])
-def add_test_raspberry_pi_data():
-    """測試樹莓派數據存儲功能（模擬樹莓派傳送的數據格式）"""
+# 測試數據配置 - 抽取為常量以便維護
+TEST_DATA_CONFIG = {
+    'raspberry_pi': {
+        'devices': [
+            {
+                'mac_id': 'RPI_001',
+                'device_type': 'Current_Sensor',
+                'device_model': 'CS100_RPI',
+                'factory_area': '生產線A區',
+                'floor_level': '1F',
+                'channels': [
+                    {'channel': 1, 'values': [3.25, 2.85, 3.18], 'unit': 'A'},
+                    {'channel': 2, 'values': [2.85, 2.95, 3.05], 'unit': 'A'}
+                ]
+            },
+            {
+                'mac_id': 'RPI_002',
+                'device_type': 'Temperature_Sensor',
+                'device_model': 'TS200_RPI',
+                'factory_area': '生產線B區',
+                'floor_level': '2F',
+                'channels': [
+                    {'channel': 1, 'values': [24.5, 26.8, 25.2], 'unit': 'C'},
+                    {'channel': 2, 'values': [25.1, 27.2, 24.8], 'unit': 'C'}
+                ]
+            },
+            {
+                'mac_id': 'RPI_003',
+                'device_type': 'Voltage_Sensor',
+                'device_model': 'VS300_RPI',
+                'factory_area': '品檢區',
+                'floor_level': '1F',
+                'channels': [
+                    {'channel': 1, 'values': [220.5, 218.9, 221.2], 'unit': 'V'},
+                    {'channel': 2, 'values': [219.8, 220.1, 218.5], 'unit': 'V'}
+                ]
+            }
+        ],
+        'time_intervals': [-30, -15, 0]  # 分鐘偏移
+    }
+}
+
+def _validate_database_availability():
+    """驗證資料庫可用性的統一函數"""
     if not DATABASE_AVAILABLE or not db_manager:
-        return jsonify({
+        return False, jsonify({
             'success': False,
             'message': '資料庫功能未啟用'
         })
+    return True, None
+
+def _convert_sensor_data_to_db_format(sensor_data, timestamp, source='test'):
+    """將感測器數據轉換為資料庫格式的統一函數"""
+    unit_lower = sensor_data['unit'].lower()
     
-    try:
-        from datetime import datetime, timedelta
-        
-        # 模擬樹莓派傳送的實際數據格式
-        raspberry_pi_data = [
-            # 設備 1 - 電流感測器
-            {
-                'mac_id': 'RPI_001',
-                'channel': 1,
-                'parameter': 3.25,
-                'unit': 'A',
-                'device_type': 'Current_Sensor',
-                'device_model': 'CS100_RPI',
-                'factory_area': '生產線A區',
-                'floor_level': '1F',
-                'timestamp': (datetime.now() - timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
-            },
-            {
-                'mac_id': 'RPI_001',
-                'channel': 2,
-                'parameter': 2.85,
-                'unit': 'A',
-                'device_type': 'Current_Sensor',
-                'device_model': 'CS100_RPI',
-                'factory_area': '生產線A區',
-                'floor_level': '1F',
-                'timestamp': (datetime.now() - timedelta(minutes=25)).strftime('%Y-%m-%d %H:%M:%S')
-            },
+    return {
+        'timestamp': timestamp,
+        'mac_id': sensor_data['mac_id'],
+        'device_type': sensor_data['device_type'],
+        'device_model': sensor_data['device_model'],
+        'factory_area': sensor_data['factory_area'],
+        'floor_level': sensor_data['floor_level'],
+        'raw_data': f'Channel:{sensor_data["channel"]}, Value:{sensor_data["parameter"]}{sensor_data["unit"]}',
+        'parsed_data': f'{{"channel": {sensor_data["channel"]}, "value": {sensor_data["parameter"]}, "unit": "{sensor_data["unit"]}"}}',
+        'current': sensor_data['parameter'] if unit_lower in ['a', 'amp', 'ampere'] else None,
+        'temperature': sensor_data['parameter'] if unit_lower in ['c', 'celsius', '°c'] else None,
+        'voltage': sensor_data['parameter'] if unit_lower in ['v', 'volt'] else None,
+        'status': 'active',
+        'source': source
+    }
+
+def _batch_save_test_data(test_data_list, source='test'):
+    """批量保存測試數據的統一函數"""
+    success_count = 0
+    failed_count = 0
+    current_time = datetime.now()
+    
+    # 準備批量數據
+    batch_data = []
+    
+    for item in test_data_list:
+        try:
+            if 'time_offset' in item:
+                timestamp = current_time + timedelta(minutes=item['time_offset'])
+            else:
+                timestamp = datetime.strptime(item['timestamp'], '%Y-%m-%d %H:%M:%S') if isinstance(item['timestamp'], str) else item['timestamp']
             
-            # 設備 2 - 溫度感測器
-            {
-                'mac_id': 'RPI_002',
-                'channel': 1,
-                'parameter': 24.5,
-                'unit': 'C',
-                'device_type': 'Temperature_Sensor',
-                'device_model': 'TS200_RPI',
-                'factory_area': '生產線B區',
-                'floor_level': '2F',
-                'timestamp': (datetime.now() - timedelta(minutes=20)).strftime('%Y-%m-%d %H:%M:%S')
-            },
-            {
-                'mac_id': 'RPI_002',
-                'channel': 2,
-                'parameter': 26.8,
-                'unit': 'C',
-                'device_type': 'Temperature_Sensor',
-                'device_model': 'TS200_RPI',
-                'factory_area': '生產線B區',
-                'floor_level': '2F',
-                'timestamp': (datetime.now() - timedelta(minutes=15)).strftime('%Y-%m-%d %H:%M:%S')
-            },
+            db_data = _convert_sensor_data_to_db_format(item, timestamp, source)
+            batch_data.append(db_data)
             
-            # 設備 3 - 電壓感測器
-            {
-                'mac_id': 'RPI_003',
-                'channel': 1,
-                'parameter': 220.5,
-                'unit': 'V',
-                'device_type': 'Voltage_Sensor',
-                'device_model': 'VS300_RPI',
-                'factory_area': '品檢區',
-                'floor_level': '1F',
-                'timestamp': (datetime.now() - timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')
-            },
-            {
-                'mac_id': 'RPI_003',
-                'channel': 2,
-                'parameter': 218.9,
-                'unit': 'V',
-                'device_type': 'Voltage_Sensor',
-                'device_model': 'VS300_RPI',
-                'factory_area': '品檢區',
-                'floor_level': '1F',
-                'timestamp': (datetime.now() - timedelta(minutes=5)).strftime('%Y-%m-%d %H:%M:%S')
-            },
-            
-            # 最新數據
-            {
-                'mac_id': 'RPI_001',
-                'channel': 1,
-                'parameter': 3.18,
-                'unit': 'A',
-                'device_type': 'Current_Sensor',
-                'device_model': 'CS100_RPI',
-                'factory_area': '生產線A區',
-                'floor_level': '1F',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            },
-            {
-                'mac_id': 'RPI_002',
-                'channel': 1,
-                'parameter': 25.2,
-                'unit': 'C',
-                'device_type': 'Temperature_Sensor',
-                'device_model': 'TS200_RPI',
-                'factory_area': '生產線B區',
-                'floor_level': '2F',
-                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            }
-        ]
-        
-        success_count = 0
-        failed_count = 0
-        
-        for item in raspberry_pi_data:
-            try:
-                # 構建資料庫數據格式
-                db_data = {
-                    'timestamp': item['timestamp'],
-                    'mac_id': item['mac_id'],
-                    'device_type': item['device_type'],
-                    'device_model': item['device_model'],
-                    'factory_area': item['factory_area'],
-                    'floor_level': item['floor_level'],
-                    'raw_data': f'Channel:{item["channel"]}, Value:{item["parameter"]}{item["unit"]}',
-                    'parsed_data': f'{{"channel": {item["channel"]}, "value": {item["parameter"]}, "unit": "{item["unit"]}"}}',
-                    'current': item['parameter'] if item['unit'].lower() in ['a', 'amp', 'ampere'] else None,
-                    'temperature': item['parameter'] if item['unit'].lower() in ['c', 'celsius', '°c'] else None,
-                    'voltage': item['parameter'] if item['unit'].lower() in ['v', 'volt'] else None,
-                    'status': 'active',
-                    'source': 'raspberry_pi_test'
-                }
-                
-                if db_manager.save_uart_data(db_data):
-                    success_count += 1
-                else:
-                    failed_count += 1
-                    
-            except Exception as e:
-                logging.error(f'處理樹莓派測試數據失敗: {e}')
+        except Exception as e:
+            logging.error(f'準備測試數據失敗: {e}')
+            failed_count += 1
+    
+    # 批量插入數據
+    for db_data in batch_data:
+        try:
+            if db_manager.save_uart_data(db_data):
+                success_count += 1
+            else:
                 failed_count += 1
+        except Exception as e:
+            logging.error(f'保存測試數據失敗: {e}')
+            failed_count += 1
+    
+    return success_count, failed_count, len(test_data_list)
+
+@app.route('/api/database/test-raspberry-pi-data', methods=['POST'])
+def add_test_raspberry_pi_data():
+    """測試樹莓派數據存儲功能（模擬樹莓派傳送的數據格式）"""
+    try:
+        is_available, error_response = _validate_database_availability()
+        if not is_available:
+            return error_response
         
-        return jsonify({
-            'success': True,
-            'message': f'成功存儲 {success_count}/{len(raspberry_pi_data)} 筆樹莓派模擬數據',
-            'success_count': success_count,
-            'failed_count': failed_count,
-            'total_count': len(raspberry_pi_data),
-            'data_info': {
-                'devices': ['RPI_001', 'RPI_002', 'RPI_003'],
-                'sensor_types': ['Current_Sensor', 'Temperature_Sensor', 'Voltage_Sensor'],
-                'areas': ['生產線A區', '生產線B區', '品檢區'],
-                'data_format': '模擬樹莓派實際傳送的數據格式'
-            }
-        })
-        
+        with PerformanceTimer("樹莓派測試數據添加"):
+            # 使用配置生成測試數據
+            raspberry_pi_data = []
+            current_time = datetime.now()
+            config = TEST_DATA_CONFIG['raspberry_pi']
+            
+            for device in config['devices']:
+                for channel_info in device['channels']:
+                    for i, value in enumerate(channel_info['values']):
+                        time_offset = config['time_intervals'][i] if i < len(config['time_intervals']) else 0
+                        timestamp = current_time + timedelta(minutes=time_offset)
+                        
+                        raspberry_pi_data.append({
+                            'mac_id': device['mac_id'],
+                            'channel': channel_info['channel'],
+                            'parameter': value,
+                            'unit': channel_info['unit'],
+                            'device_type': device['device_type'],
+                            'device_model': device['device_model'],
+                            'factory_area': device['factory_area'],
+                            'floor_level': device['floor_level'],
+                            'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                        })
+            
+            success_count, failed_count, total_count = _batch_save_test_data(
+                raspberry_pi_data, 'raspberry_pi_test'
+            )
+            
+            # 提取設備資訊用於回應
+            devices = list(set(device['mac_id'] for device in config['devices']))
+            sensor_types = list(set(device['device_type'] for device in config['devices']))
+            areas = list(set(device['factory_area'] for device in config['devices']))
+            
+            return safe_json_response(
+                success=True,
+                message=f'成功存儲 {success_count}/{total_count} 筆樹莓派模擬數據',
+                success_count=success_count,
+                failed_count=failed_count,
+                total_count=total_count,
+                data_info={
+                    'devices': devices,
+                    'sensor_types': sensor_types,
+                    'areas': areas,
+                    'data_format': '模擬樹莓派實際傳送的數據格式'
+                }
+            )
     except Exception as e:
-        logging.error(f"添加樹莓派測試數據失敗: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'添加樹莓派測試數據失敗: {str(e)}'
-        })
+        logging.error(f"樹莓派測試數據添加 失敗: {e}")
+        return safe_json_response(
+            success=False,
+            message=f"樹莓派測試數據添加 失敗: {str(e)}"
+        )
 
 @app.route('/api/database/test-current-data', methods=['POST'])
 def add_test_current_data():
     """添加實際電流數據（用於測試圖表功能）"""
-    if not DATABASE_AVAILABLE or not db_manager:
-        return jsonify({
-            'success': False,
-            'message': '資料庫功能未啟用'
-        })
-    
     try:
-        from datetime import datetime, timedelta
+        is_available, error_response = _validate_database_availability()
+        if not is_available:
+            return error_response
         
-        # 定義實際的電流數據樣本 - 模擬真實工廠設備的電流變化
-        actual_current_data = [
-            # 早上8:00-12:00 正常工作時段 - 電流較高
-            {'time_offset': -480, 'current': 3.2, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -450, 'current': 3.15, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -420, 'current': 3.18, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -390, 'current': 3.22, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -360, 'current': 3.25, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            
-            # 中午12:00-13:00 午休時段 - 電流下降
-            {'time_offset': -330, 'current': 1.8, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -300, 'current': 1.5, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            
-            # 下午13:00-17:00 正常工作時段
-            {'time_offset': -270, 'current': 3.1, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -240, 'current': 3.28, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -210, 'current': 3.35, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -180, 'current': 3.42, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -150, 'current': 3.38, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            
-            # 晚上17:00-18:00 下班準備 - 電流逐漸下降
-            {'time_offset': -120, 'current': 2.8, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -90, 'current': 2.2, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -60, 'current': 1.9, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            
-            # 夜間待機模式 - 低電流
-            {'time_offset': -30, 'current': 0.8, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -15, 'current': 0.75, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            {'time_offset': -5, 'current': 0.82, 'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100'},
-            
-            # 不同設備的數據
-            {'time_offset': -120, 'current': 2.5, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
-            {'time_offset': -60, 'current': 2.8, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
-            {'time_offset': -30, 'current': 2.6, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
-            {'time_offset': -10, 'current': 2.7, 'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200'},
-            
-            {'time_offset': -180, 'current': 4.2, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
-            {'time_offset': -90, 'current': 4.5, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
-            {'time_offset': -45, 'current': 4.1, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
-            {'time_offset': -15, 'current': 3.9, 'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300'},
-        ]
-        
-        success_count = 0
-        current_time = datetime.now()
-        
-        for data_point in actual_current_data:
-            # 計算時間戳（基於當前時間的偏移）
-            timestamp = current_time + timedelta(minutes=data_point['time_offset'])
-            
-            # 構建數據
-            current_data = {
-                'timestamp': timestamp,
-                'mac_id': data_point['mac_id'],
-                'device_type': 'Current_Sensor',
-                'device_model': data_point['model'],
-                'factory_area': data_point['area'],
-                'floor_level': data_point['floor'],
-                'raw_data': f'Current: {data_point["current"]}A',
-                'parsed_data': f'{{"current": {data_point["current"]}}}',
-                'current': data_point['current'],
-                'status': 'active'
+        with PerformanceTimer("電流測試數據添加"):
+            # 定義實際的電流數據樣本 - 模擬真實工廠設備的電流變化
+            # 使用更結構化的方式生成數據
+            work_patterns = {
+                'morning_work': {'hours': [8, 12], 'current_range': [3.1, 3.4], 'intervals': [-480, -450, -420, -390, -360]},
+                'lunch_break': {'hours': [12, 13], 'current_range': [1.5, 1.8], 'intervals': [-330, -300]},
+                'afternoon_work': {'hours': [13, 17], 'current_range': [3.1, 3.4], 'intervals': [-270, -240, -210, -180, -150]},
+                'evening_shutdown': {'hours': [17, 18], 'current_range': [1.9, 2.8], 'intervals': [-120, -90, -60]},
+                'night_standby': {'hours': [18, 24], 'current_range': [0.7, 0.9], 'intervals': [-30, -15, -5]}
             }
             
-            if db_manager.save_uart_data(current_data):
-                success_count += 1
+            devices_config = [
+                {'mac_id': 'MAC_001', 'area': 'A廠區', 'floor': '1F', 'model': 'CS100', 'base_current': 3.2},
+                {'mac_id': 'MAC_002', 'area': 'B廠區', 'floor': '2F', 'model': 'CS200', 'base_current': 2.7},
+                {'mac_id': 'MAC_003', 'area': 'C廠區', 'floor': '1F', 'model': 'CS300', 'base_current': 4.2}
+            ]
+            
+            actual_current_data = []
+            
+            # 為主要設備生成完整的工作模式數據
+            main_device = devices_config[0]
+            for pattern_name, pattern in work_patterns.items():
+                current_min, current_max = pattern['current_range']
+                for i, time_offset in enumerate(pattern['intervals']):
+                    # 在範圍內生成變化的電流值
+                    current_variation = (current_max - current_min) * (i / len(pattern['intervals']))
+                    current_value = round(current_min + current_variation, 2)
+                    
+                    actual_current_data.append({
+                        'time_offset': time_offset,
+                        'current': current_value,
+                        'mac_id': main_device['mac_id'],
+                        'area': main_device['area'],
+                        'floor': main_device['floor'],
+                        'model': main_device['model'],
+                        'device_type': 'Current_Sensor',
+                        'device_model': main_device['model'],
+                        'factory_area': main_device['area'],
+                        'floor_level': main_device['floor'],
+                        'channel': 1,
+                        'unit': 'A'
+                    })
+            
+            # 為其他設備生成簡化的數據
+            for device in devices_config[1:]:
+                key_times = [-180, -90, -45, -15]  # 關鍵時間點
+                for time_offset in key_times:
+                    # 基於設備基礎電流和時間計算變化
+                    time_factor = 1 + (time_offset / 1000)  # 時間影響因子
+                    current_value = round(device['base_current'] * time_factor, 2)
+                    
+                    actual_current_data.append({
+                        'time_offset': time_offset,
+                        'current': current_value,
+                        'mac_id': device['mac_id'],
+                        'area': device['area'],
+                        'floor': device['floor'],
+                        'model': device['model'],
+                        'device_type': 'Current_Sensor',
+                        'device_model': device['model'],
+                        'factory_area': device['area'],
+                        'floor_level': device['floor'],
+                        'channel': 1,
+                        'unit': 'A'
+                    })
+            
+            success_count, failed_count, total_count = _batch_save_test_data(
+                actual_current_data, 'current_test'
+            )
+            
+            return safe_json_response(
+                success=True,
+                message=f'成功添加 {success_count}/{total_count} 筆實際電流數據',
+                added_count=success_count,
+                failed_count=failed_count,
+                total_count=total_count,
+                data_info={
+                    'devices': [device['mac_id'] for device in devices_config],
+                    'areas': [device['area'] for device in devices_config],
+                    'time_span': '過去8小時的工廠運行數據',
+                    'pattern': '包含正常工作時段、午休時段、下班時段和夜間待機模式',
+                    'work_patterns': list(work_patterns.keys())
+                }
+            )
+    except Exception as e:
+        logging.error(f"電流測試數據添加 失敗: {e}")
+        return safe_json_response(
+            success=False,
+            message=f"電流測試數據添加 失敗: {str(e)}"
+        )
+
+@app.route('/api/database/test-data-generator', methods=['POST'])
+def generate_test_data():
+    """通用測試數據生成器 - 可根據參數生成不同類型的測試數據"""
+    is_available, error_response = _validate_database_availability()
+    if not is_available:
+        return error_response
+    
+    try:
+        data = request.get_json() or {}
+        
+        # 默認參數
+        config = {
+            'data_type': data.get('data_type', 'current'),  # current, temperature, voltage, mixed
+            'device_count': min(data.get('device_count', 3), 10),  # 限制最多10個設備
+            'time_range_hours': min(data.get('time_range_hours', 8), 24),  # 限制最多24小時
+            'data_points_per_hour': min(data.get('data_points_per_hour', 4), 12),  # 限制每小時最多12個數據點
+            'pattern': data.get('pattern', 'realistic')  # realistic, linear, random, sine_wave
+        }
+        
+        # 計算總數據點數
+        total_points = config['device_count'] * config['time_range_hours'] * config['data_points_per_hour']
+        if total_points > 1000:  # 限制總數據點數
+            return jsonify({
+                'success': False,
+                'message': f'請求的數據點數量過多 ({total_points})，請調整參數使總數據點數不超過1000'
+            })
+        
+        # 生成測試數據
+        generated_data = _generate_parameterized_test_data(config)
+        
+        # 批量保存數據
+        success_count, failed_count, total_count = _batch_save_test_data(
+            generated_data, f'generated_{config["data_type"]}'
+        )
         
         return jsonify({
             'success': True,
-            'message': f'成功添加 {success_count}/{len(actual_current_data)} 筆實際電流數據',
-            'added_count': success_count,
+            'message': f'成功生成並保存 {success_count}/{total_count} 筆測試數據',
+            'success_count': success_count,
+            'failed_count': failed_count,
+            'total_count': total_count,
+            'config_used': config,
             'data_info': {
-                'devices': ['MAC_001', 'MAC_002', 'MAC_003'],
-                'areas': ['A廠區', 'B廠區', 'C廠區'],
-                'time_span': '過去8小時的工廠運行數據',
-                'pattern': '包含正常工作時段、午休時段、下班時段和夜間待機模式'
+                'pattern': config['pattern'],
+                'time_span': f'{config["time_range_hours"]} 小時',
+                'devices': config['device_count'],
+                'sensor_type': config['data_type']
             }
         })
         
     except Exception as e:
-        logging.error(f"添加實際電流數據失敗: {e}")
+        logging.error(f"生成測試數據失敗: {e}")
         return jsonify({
             'success': False,
-            'message': f'添加實際電流數據失敗: {str(e)}'
+            'message': f'生成測試數據失敗: {str(e)}'
         })
+
+def _generate_parameterized_test_data(config):
+    """根據配置參數生成測試數據"""
+    test_data = []
+    current_time = datetime.now()
+    
+    # 設備配置
+    device_templates = {
+        'current': {'unit': 'A', 'device_type': 'Current_Sensor', 'base_range': [1.0, 5.0]},
+        'temperature': {'unit': 'C', 'device_type': 'Temperature_Sensor', 'base_range': [20.0, 35.0]},
+        'voltage': {'unit': 'V', 'device_type': 'Voltage_Sensor', 'base_range': [200.0, 240.0]},
+        'mixed': {'unit': 'Mixed', 'device_type': 'Mixed_Sensor', 'base_range': [0.0, 100.0]}
+    }
+    
+    template = device_templates.get(config['data_type'], device_templates['current'])
+    
+    # 生成設備列表
+    devices = []
+    for i in range(config['device_count']):
+        device_id = f"GEN_{config['data_type'].upper()}_{i+1:03d}"
+        devices.append({
+            'mac_id': device_id,
+            'device_type': template['device_type'],
+            'device_model': f"{template['device_type']}_Model_{i+1}",
+            'factory_area': f'測試區域{chr(65+i)}',  # A, B, C...
+            'floor_level': f'{(i % 3) + 1}F'
+        })
+    
+    # 生成時間序列數據
+    time_interval_minutes = 60 / config['data_points_per_hour']
+    total_intervals = config['time_range_hours'] * config['data_points_per_hour']
+    
+    for device in devices:
+        for i in range(total_intervals):
+            time_offset = -(total_intervals - i) * time_interval_minutes
+            timestamp = current_time + timedelta(minutes=time_offset)
+            
+            # 根據模式生成數值
+            value = _generate_value_by_pattern(
+                config['pattern'], 
+                i, 
+                total_intervals, 
+                template['base_range']
+            )
+            
+            # 為混合類型隨機選擇單位
+            if config['data_type'] == 'mixed':
+                sensor_types = ['A', 'C', 'V']
+                unit = random.choice(sensor_types)
+                if unit == 'A':
+                    value = round(random.uniform(1.0, 5.0), 2)
+                elif unit == 'C':
+                    value = round(random.uniform(20.0, 35.0), 1)
+                else:  # V
+                    value = round(random.uniform(200.0, 240.0), 1)
+            else:
+                unit = template['unit']
+            
+            test_data.append({
+                'mac_id': device['mac_id'],
+                'device_type': device['device_type'],
+                'device_model': device['device_model'],
+                'factory_area': device['factory_area'],
+                'floor_level': device['floor_level'],
+                'parameter': value,
+                'unit': unit,
+                'channel': 1,
+                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            })
+    
+    return test_data
+
+def _generate_value_by_pattern(pattern, index, total_points, value_range):
+    """根據指定模式生成數值"""
+    min_val, max_val = value_range
+    range_span = max_val - min_val
+    
+    if pattern == 'linear':
+        # 線性增長
+        ratio = index / total_points
+        value = min_val + (range_span * ratio)
+    
+    elif pattern == 'sine_wave':
+        # 正弦波模式
+        ratio = (index / total_points) * 2 * math.pi
+        sine_val = (math.sin(ratio) + 1) / 2  # 歸一化到 0-1
+        value = min_val + (range_span * sine_val)
+    
+    elif pattern == 'random':
+        # 隨機模式
+        value = random.uniform(min_val, max_val)
+    
+    else:  # realistic (預設)
+        # 現實模式：工作時間高，休息時間低
+        hour_of_day = (index * 24 / total_points) % 24
+        if 8 <= hour_of_day <= 17:  # 工作時間
+            base_ratio = 0.7 + (0.3 * random.random())
+        elif 12 <= hour_of_day <= 13:  # 午休時間
+            base_ratio = 0.3 + (0.2 * random.random())
+        else:  # 其他時間
+            base_ratio = 0.2 + (0.3 * random.random())
+        
+        value = min_val + (range_span * base_ratio)
+    
+    # 根據數據類型調整精度
+    if max_val <= 10:  # 電流類型
+        return round(value, 2)
+    elif max_val <= 100:  # 溫度類型
+        return round(value, 1)
+    else:  # 電壓類型
+        return round(value, 1)
+
+@app.route('/api/database/cleanup-test-data', methods=['DELETE'])
+def cleanup_test_data():
+    """清理測試數據"""
+    try:
+        is_available, error_response = _validate_database_availability()
+        if not is_available:
+            return error_response
+        
+        with PerformanceTimer("清理測試數據"):
+            data = request.get_json() or {}
+            source_filter = data.get('source', 'all')  # all, raspberry_pi_test, current_test, generated_*
+            
+            # 安全檢查：只允許清理測試數據
+            allowed_sources = ['raspberry_pi_test', 'current_test', 'test']
+            allowed_sources.extend([f'generated_{t}' for t in ['current', 'temperature', 'voltage', 'mixed']])
+            
+            if source_filter == 'all':
+                sources_to_clean = allowed_sources
+            elif source_filter in allowed_sources:
+                sources_to_clean = [source_filter]
+            else:
+                return safe_json_response(
+                    success=False,
+                    message=f'不允許清理的數據源: {source_filter}'
+                )
+            
+            # 執行清理（這裡需要 db_manager 支援按 source 刪除的功能）
+            cleaned_count = 0
+            for source in sources_to_clean:
+                try:
+                    # 假設 db_manager 有 delete_by_source 方法
+                    if hasattr(db_manager, 'delete_by_source'):
+                        count = db_manager.delete_by_source(source)
+                        cleaned_count += count
+                    else:
+                        # 如果沒有特定方法，記錄警告
+                        logging.warning(f"db_manager 沒有 delete_by_source 方法，無法清理 {source} 數據")
+                except Exception as e:
+                    logging.error(f"清理 {source} 數據時發生錯誤: {e}")
+            
+            # 清理快取
+            api_cache.clear()
+            data_cache.clear()
+            
+            return safe_json_response(
+                success=True,
+                message=f'成功清理 {cleaned_count} 筆測試數據',
+                cleaned_count=cleaned_count,
+                cleaned_sources=sources_to_clean
+            )
+    except Exception as e:
+        logging.error(f"清理測試數據 失敗: {e}")
+        return safe_json_response(
+            success=False,
+            message=f"清理測試數據 失敗: {str(e)}"
+        )
 
 @app.route('/api/database/raspberry-pi-stats')
 def get_raspberry_pi_stats():
@@ -3787,6 +4271,58 @@ def initialize_raspberry_pi_connection():
     except Exception as e:
         logging.error(f"初始化樹莓派連接時發生錯誤: {e}")
 
+# === Dashboard 配置管理 API ===
+@app.route('/api/dashboard/config', methods=['GET'])
+def get_dashboard_config():
+    """API: 獲取 Dashboard 配置"""
+    return jsonify({
+        'success': True,
+        'config': {
+            'raspberry_pi_host': RASPBERRY_PI_HOST,
+            'raspberry_pi_port': RASPBERRY_PI_PORT,
+            'standalone_mode': DASHBOARD_STANDALONE_MODE,
+            'requests_available': REQUESTS_AVAILABLE,
+            'current_pi_config': RASPBERRY_PI_CONFIG
+        },
+        'timestamp': datetime.now().isoformat()
+    })
+
+@app.route('/api/dashboard/config', methods=['POST'])
+def update_dashboard_config():
+    """API: 更新 Dashboard 配置"""
+    try:
+        data = request.get_json()
+        global RASPBERRY_PI_HOST, RASPBERRY_PI_PORT, RASPBERRY_PI_CONFIG
+        
+        if 'raspberry_pi_host' in data:
+            RASPBERRY_PI_HOST = data['raspberry_pi_host']
+            RASPBERRY_PI_CONFIG['host'] = RASPBERRY_PI_HOST
+            os.environ['RASPBERRY_PI_HOST'] = RASPBERRY_PI_HOST
+            
+        if 'raspberry_pi_port' in data:
+            RASPBERRY_PI_PORT = str(data['raspberry_pi_port'])
+            RASPBERRY_PI_CONFIG['port'] = int(RASPBERRY_PI_PORT)
+            os.environ['RASPBERRY_PI_PORT'] = RASPBERRY_PI_PORT
+            
+        logging.info(f"Dashboard 配置已更新: {RASPBERRY_PI_HOST}:{RASPBERRY_PI_PORT}")
+        
+        return jsonify({
+            'success': True,
+            'message': '配置已更新',
+            'config': {
+                'raspberry_pi_host': RASPBERRY_PI_HOST,
+                'raspberry_pi_port': RASPBERRY_PI_PORT,
+                'standalone_mode': DASHBOARD_STANDALONE_MODE
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'更新配置失敗: {str(e)}'
+        })
+
+# === 應用程式初始化 ===
 if __name__ == '__main__':
     try:
         print("啟動 Dashboard API 服務...")

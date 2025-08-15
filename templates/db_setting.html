@@ -430,6 +430,46 @@
                                     <pre id="debugApiResponse" class="text-muted small" style="max-height: 200px; overflow-y: auto;">無響應數據</pre>
                                 </div>
                             </div>
+                            
+                            <!-- 樹梅派配置區域 -->
+                            <div class="row mt-3">
+                                <div class="col-12">
+                                    <h6><i class="fas fa-network-wired me-2"></i>樹梅派連接配置</h6>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <div class="form-group mb-2">
+                                                <label for="raspberryPiHost" class="form-label">樹梅派 IP 地址</label>
+                                                <input type="text" class="form-control form-control-sm" id="raspberryPiHost" 
+                                                       placeholder="例如: 192.168.1.100" value="192.168.1.100">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="form-group mb-2">
+                                                <label for="raspberryPiPort" class="form-label">端口</label>
+                                                <input type="number" class="form-control form-control-sm" id="raspberryPiPort" 
+                                                       placeholder="5000" value="5000" min="1" max="65535">
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3">
+                                            <div class="form-group mb-2">
+                                                <label class="form-label">&nbsp;</label>
+                                                <div>
+                                                    <button class="btn btn-primary btn-sm" onclick="saveRaspberryPiConfig()">
+                                                        <i class="fas fa-save me-1"></i>保存
+                                                    </button>
+                                                    <button class="btn btn-outline-secondary btn-sm ms-1" onclick="testRaspberryPiConnection()">
+                                                        <i class="fas fa-plug me-1"></i>測試
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div id="raspberryPiStatus" class="text-muted small">
+                                        <i class="fas fa-info-circle"></i> 配置樹梅派 IP 地址以獲取即時 MAC ID 數據
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <div class="row mt-3">
                                 <div class="col-12">
                                     <h6><i class="fas fa-list me-2"></i>MAC ID 狀態</h6>
@@ -894,25 +934,36 @@
             }
         }
 
-        // 獲取MAC ID列表
-        async function loadMacIdList() {
+        // 獲取MAC ID列表 - 增強版本
+        async function loadMacIdList(retryCount = 0) {
+            const maxRetries = 2;
+            
             try {
-                document.getElementById('macIdStatus').textContent = '載入中...';
+                document.getElementById('macIdStatus').textContent = retryCount > 0 ? `載入中... (重試 ${retryCount}/${maxRetries})` : '載入中...';
                 
                 // 添加時間戳防止快取，並設置較短的超時時間
                 const timestamp = new Date().getTime();
                 
                 // 創建 AbortController 來處理超時（相容性更好）
                 const controller = new AbortController();
-                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
+                const timeoutId = setTimeout(() => controller.abort(), 15000); // 15秒超時
+                
+                // 檢測當前是否在樹梅派上運行（通過檢查端口）
+                const isOnRaspberryPi = window.location.port === '5000';
+                const apiUrl = isOnRaspberryPi 
+                    ? `/api/uart/mac-ids?t=${timestamp}` 
+                    : `/api/uart/mac-ids?t=${timestamp}`;
+                
+                console.log(`正在載入 MAC ID，URL: ${apiUrl}, 運行模式: ${isOnRaspberryPi ? '樹梅派' : 'Dashboard主機'}`);
                 
                 // 使用相對路徑避免 CORS 問題
-                const response = await fetch(`/api/uart/mac-ids?t=${timestamp}`, {
+                const response = await fetch(apiUrl, {
                     method: 'GET',
                     cache: 'no-cache',
                     headers: {
                         'Cache-Control': 'no-cache',
-                        'Pragma': 'no-cache'
+                        'Pragma': 'no-cache',
+                        'Accept': 'application/json'
                     },
                     signal: controller.signal
                 });
@@ -963,19 +1014,51 @@
                 console.error('載入 MAC ID 列表失敗:', error);
                 
                 let errorMessage = '載入失敗';
+                let shouldRetry = false;
+                
                 if (error.name === 'AbortError') {
                     errorMessage = '請求超時，請檢查伺服器狀態';
+                    shouldRetry = true;
                 } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
                     errorMessage = '無法連接到伺服器，請確認服務是否運行';
+                    shouldRetry = true;
                 } else {
                     errorMessage = `載入失敗: ${error.message}`;
                 }
                 
-                document.getElementById('macIdStatus').textContent = errorMessage;
+                // 如果可以重試且未達到最大重試次數，則進行重試
+                if (shouldRetry && retryCount < maxRetries) {
+                    console.log(`準備重試載入 MAC ID (${retryCount + 1}/${maxRetries})`);
+                    document.getElementById('macIdStatus').textContent = `連接失敗，將在3秒後重試... (${retryCount + 1}/${maxRetries})`;
+                    document.getElementById('macIdStatus').className = 'text-warning ms-2';
+                    
+                    // 3秒後重試
+                    setTimeout(() => {
+                        loadMacIdList(retryCount + 1);
+                    }, 3000);
+                    return;
+                }
+                
+                // 最終失敗或不可重試的錯誤
+                const finalMessage = retryCount >= maxRetries 
+                    ? `${errorMessage} (已重試 ${maxRetries} 次)` 
+                    : errorMessage;
+                    
+                document.getElementById('macIdStatus').textContent = finalMessage;
                 document.getElementById('macIdStatus').className = 'text-danger ms-2';
                 
                 // 更新調試面板
-                updateDebugInfo('MAC ID API 異常', { error: error.message, errorType: error.name });
+                updateDebugInfo('MAC ID API 異常', { 
+                    error: error.message, 
+                    errorType: error.name,
+                    retryCount: retryCount,
+                    maxRetries: maxRetries
+                });
+                
+                // 如果是最終失敗，拋出錯誤供上層處理
+                if (retryCount >= maxRetries) {
+                    throw error;
+                }
             }
         }
 
@@ -1050,13 +1133,46 @@
             loadMacIdList();
         }
         
-        // 自動定期刷新MAC ID列表
+        // 自動定期刷新MAC ID列表 - 改進版本
         function startAutoRefreshMacIds() {
-            // 每30秒自動刷新一次MAC ID列表
-            setInterval(() => {
-                console.log('自動刷新 MAC ID 列表');
-                loadMacIdList();
-            }, 30000); // 30秒
+            let refreshInterval = 30000; // 30秒
+            let failureCount = 0;
+            
+            const autoRefresh = async () => {
+                try {
+                    console.log('自動刷新 MAC ID 列表');
+                    
+                    // 顯示自動刷新狀態
+                    const statusElement = document.getElementById('macIdStatus');
+                    const currentText = statusElement.textContent;
+                    if (!currentText.includes('載入中') && !currentText.includes('測試中')) {
+                        statusElement.textContent = '自動更新中...';
+                        statusElement.className = 'text-info ms-2';
+                    }
+                    
+                    await loadMacIdList();
+                    failureCount = 0; // 成功後重置失敗計數
+                    refreshInterval = 30000; // 重置為30秒間隔
+                    
+                } catch (error) {
+                    failureCount++;
+                    console.warn(`自動刷新失敗 (第${failureCount}次):`, error);
+                    
+                    // 如果多次失敗，增加刷新間隔
+                    if (failureCount > 3) {
+                        refreshInterval = Math.min(120000, refreshInterval * 1.5); // 最大2分鐘
+                        console.warn(`連續失敗${failureCount}次，調整刷新間隔為 ${refreshInterval/1000} 秒`);
+                    }
+                }
+                
+                // 設定下次自動刷新
+                setTimeout(autoRefresh, refreshInterval);
+            };
+            
+            // 延遲10秒後開始第一次自動刷新
+            setTimeout(autoRefresh, 10000);
+            
+            console.log(`MAC ID 自動刷新已啟動，間隔 ${refreshInterval/1000} 秒`);
         }
         
         // 測試 API 連接
@@ -1523,6 +1639,121 @@
                 }
             }
             
+            // === 樹梅派配置管理函數 ===
+            // 載入樹梅派配置
+            async function loadRaspberryPiConfig() {
+                try {
+                    const response = await fetch('/api/dashboard/config', {
+                        method: 'GET',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        }
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.success && data.config) {
+                            document.getElementById('raspberryPiHost').value = data.config.raspberry_pi_host || '192.168.1.100';
+                            document.getElementById('raspberryPiPort').value = data.config.raspberry_pi_port || '5000';
+                            
+                            const status = document.getElementById('raspberryPiStatus');
+                            status.innerHTML = `<i class="fas fa-check-circle text-success"></i> 已載入配置: ${data.config.raspberry_pi_host}:${data.config.raspberry_pi_port}`;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('載入樹梅派配置失敗:', error);
+                }
+            }
+            
+            // 保存樹梅派配置
+            async function saveRaspberryPiConfig() {
+                try {
+                    const host = document.getElementById('raspberryPiHost').value.trim();
+                    const port = parseInt(document.getElementById('raspberryPiPort').value) || 5000;
+                    
+                    if (!host) {
+                        alert('請輸入樹梅派 IP 地址');
+                        return;
+                    }
+                    
+                    const status = document.getElementById('raspberryPiStatus');
+                    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存配置中...';
+                    
+                    const response = await fetch('/api/dashboard/config', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            raspberry_pi_host: host,
+                            raspberry_pi_port: port
+                        })
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        status.innerHTML = `<i class="fas fa-check-circle text-success"></i> 配置已保存: ${host}:${port}`;
+                        
+                        // 立即測試連接
+                        setTimeout(() => {
+                            testRaspberryPiConnection();
+                        }, 1000);
+                        
+                    } else {
+                        status.innerHTML = `<i class="fas fa-exclamation-triangle text-warning"></i> 保存失敗: ${data.message}`;
+                    }
+                    
+                } catch (error) {
+                    console.error('保存樹梅派配置失敗:', error);
+                    const status = document.getElementById('raspberryPiStatus');
+                    status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 保存失敗: ${error.message}`;
+                }
+            }
+            
+            // 測試樹梅派連接
+            async function testRaspberryPiConnection() {
+                try {
+                    const status = document.getElementById('raspberryPiStatus');
+                    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 測試連接中...';
+                    
+                    // 嘗試訪問樹梅派的 API
+                    const host = document.getElementById('raspberryPiHost').value.trim();
+                    const port = parseInt(document.getElementById('raspberryPiPort').value) || 5000;
+                    
+                    const testResponse = await fetch('/api/uart/mac-ids', {
+                        method: 'GET',
+                        headers: {
+                            'Cache-Control': 'no-cache'
+                        }
+                    });
+                    
+                    if (testResponse.ok) {
+                        const testData = await testResponse.json();
+                        if (testData.success) {
+                            status.innerHTML = `<i class="fas fa-check-circle text-success"></i> 連接成功！找到 ${testData.mac_ids ? testData.mac_ids.length : 0} 個 MAC ID`;
+                            
+                            // 自動重新載入 MAC ID 列表
+                            loadMacIdList();
+                        } else {
+                            status.innerHTML = `<i class="fas fa-exclamation-triangle text-warning"></i> 連接成功但無數據: ${testData.message}`;
+                        }
+                    } else {
+                        status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 連接失敗: HTTP ${testResponse.status}`;
+                    }
+                    
+                } catch (error) {
+                    console.error('測試樹梅派連接失敗:', error);
+                    const status = document.getElementById('raspberryPiStatus');
+                    
+                    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                        status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 無法連接到 ${document.getElementById('raspberryPiHost').value}`;
+                    } else {
+                        status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 測試失敗: ${error.message}`;
+                    }
+                }
+            }
+            
             // 支援點擊主畫面自動收合（小螢幕）
             document.addEventListener('click', function(e) {
                 if(window.innerWidth < 992 && sidebar.classList.contains('show')){
@@ -1532,6 +1763,9 @@
                     }
                 }
             });
+            
+            // 頁面載入時自動載入樹梅派配置
+            loadRaspberryPiConfig();
         });
     </script>
 </body>
