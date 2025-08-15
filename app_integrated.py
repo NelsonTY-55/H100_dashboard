@@ -1409,15 +1409,15 @@ def get_uart_mac_ids():
         
         data = uart_reader.get_latest_data()
         logging.info(f'UART數據總數: {len(data) if data else 0}')
+        data_source = 'UART即時數據'
         
-        if not data:
-            # 嘗試從歷史文件載入
-            uart_reader.load_historical_data()
+        # 修正：如果即時數據為空或MAC ID數量少於預期，強制載入歷史數據
+        if not data or len(set(entry.get('mac_id') for entry in data if entry.get('mac_id') and entry.get('mac_id') not in ['N/A', '', None])) < 1:
+            logging.info('即時數據不足，嘗試從歷史文件載入MAC ID')
+            uart_reader.load_historical_data(days_back=7)  # 載入最近7天的數據
             data = uart_reader.get_latest_data()
-            data_source = '歷史文件'
-            logging.info(f'從歷史文件載入數據: {len(data) if data else 0} 筆')
-        else:
-            data_source = 'UART即時數據'
+            data_source = '歷史文件增強載入'
+            logging.info(f'從歷史文件增強載入數據: {len(data) if data else 0} 筆')
             
         if not data:
             logging.warning('沒有可用的UART數據')

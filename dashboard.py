@@ -1418,14 +1418,23 @@ def get_uart_mac_ids():
         data = []
         data_source = "直接讀取"
         
-        if 'uart_reader' in globals() and uart_reader and hasattr(uart_reader, 'get_latest_data'):
+        if uart_reader and hasattr(uart_reader, 'get_latest_data'):
             try:
                 data = uart_reader.get_latest_data()
-                if data:
-                    logging.info(f'從uart_reader獲取到 {len(data)} 筆數據')
-                    data_source = "即時數據"
+                logging.info(f'UART數據總數: {len(data) if data else 0}')
+                data_source = 'UART即時數據'
+                
+                # 修正：如果即時數據為空或MAC ID數量少於預期，強制載入歷史數據
+                if not data or len(set(entry.get('mac_id') for entry in data if entry.get('mac_id') and entry.get('mac_id') not in ['N/A', '', None])) < 1:
+                    logging.info('即時數據不足，嘗試從歷史文件載入MAC ID')
+                    if hasattr(uart_reader, 'load_historical_data'):
+                        uart_reader.load_historical_data(days_back=7)  # 載入最近7天的數據
+                        data = uart_reader.get_latest_data()
+                        data_source = '歷史文件增強載入'
+                        logging.info(f'從歷史文件增強載入數據: {len(data) if data else 0} 筆')
             except Exception as e:
                 logging.warning(f"從uart_reader獲取數據失敗: {e}")
+                data = []
         
         # 如果沒有即時數據，嘗試從文件獲取
         if not data:
@@ -1449,11 +1458,12 @@ def get_uart_mac_ids():
                 logging.warning(f"從文件獲取數據失敗: {data_info.get('error', '未知錯誤')}")
         
         if not data:
-            logging.info('暫無UART數據')
+            logging.warning('沒有可用的UART數據')
             return jsonify({
                 'success': True, 
                 'mac_ids': [], 
-                'message': '暫無UART數據，請先啟動UART讀取或檢查數據文件'
+                'data_source': data_source,
+                'message': '暫無UART數據，請先啟動UART讀取或檢查歷史數據'
             })
         
         # 從UART數據中提取所有的MAC ID

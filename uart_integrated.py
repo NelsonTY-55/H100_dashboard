@@ -413,21 +413,22 @@ class UARTReader:
             }
     
     def _cleanup_old_data(self):
-        """清理超過30分鐘的舊數據"""
+        """清理超過2小時的舊數據（修正：延長保留時間以確保 MAC ID 不會過快消失）"""
         try:
             from datetime import datetime, timedelta
-            thirty_minutes_ago = datetime.now() - timedelta(minutes=30)
+            # 修正：從30分鐘改為2小時，確保 MAC ID 有足夠時間被前端獲取
+            two_hours_ago = datetime.now() - timedelta(hours=2)
             
             # 計算清理前的數據量
             original_count = len(self.latest_data)
             
-            # 過濾出30分鐘內的數據
+            # 過濾出2小時內的數據
             filtered_data = []
             for entry in self.latest_data:
                 try:
                     # 解析時間戳
                     entry_timestamp = datetime.strptime(entry['timestamp'], '%Y-%m-%d %H:%M:%S')
-                    if entry_timestamp >= thirty_minutes_ago:
+                    if entry_timestamp >= two_hours_ago:
                         filtered_data.append(entry)
                 except ValueError:
                     # 如果時間戳解析失敗，保留該數據
@@ -439,7 +440,7 @@ class UARTReader:
             # 記錄清理結果
             cleaned_count = original_count - len(filtered_data)
             if cleaned_count > 0:
-                logging.info(f"UART數據自動清理: 移除 {cleaned_count} 筆超過30分鐘的舊數據，剩餘 {len(filtered_data)} 筆")
+                logging.info(f"UART數據自動清理: 移除 {cleaned_count} 筆超過2小時的舊數據，剩餘 {len(filtered_data)} 筆")
                 
         except Exception as e:
             logging.warning(f"清理舊數據時發生錯誤: {e}")

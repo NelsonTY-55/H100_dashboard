@@ -649,40 +649,56 @@
                         if (data.success) {
                             document.getElementById('deviceName').value = data.settings.device_name || '';
                             document.getElementById('deviceLocation').value = data.settings.device_location || '';
-                            // 先載入 MAC ID，然後載入對應的頻道和型號
-                            const deviceSerial = data.settings.device_serial || '';
-                            document.getElementById('deviceSerial').value = deviceSerial;
+                            document.getElementById('deviceDescription').value = data.settings.device_description || '';
                             
-                            // 如果有 MAC ID，載入其頻道資訊，然後填入型號
+                            // 取得儲存的 MAC ID
+                            const deviceSerial = data.settings.device_serial || '';
+                            
+                            // 如果有 MAC ID，需要確保選項列表載入完成後再設定
                             if (deviceSerial) {
-                                await loadChannelsForMacId(deviceSerial);
-                                // 等待頻道載入完成後，填入型號
+                                // 等待 MAC ID 選項列表載入完成後再設定選中值
                                 setTimeout(() => {
-                                    const deviceModel = data.settings.device_model || '';
-                                    if (typeof deviceModel === 'object') {
-                                        // 新格式：多頻道對象
-                                        getCurrentChannels().forEach(ch => {
-                                            const element = document.getElementById(`deviceModel${ch}`);
-                                            if (element) {
-                                                element.value = deviceModel[ch] || '';
-                                            }
+                                    const selectElement = document.getElementById('deviceSerial');
+                                    // 檢查該 MAC ID 是否在選項列表中
+                                    const option = Array.from(selectElement.options).find(opt => opt.value === deviceSerial);
+                                    if (option) {
+                                        selectElement.value = deviceSerial;
+                                        console.log('已設定儲存的 MAC ID:', deviceSerial);
+                                        // 載入該 MAC ID 的頻道資訊
+                                        loadChannelsForMacId(deviceSerial).then(() => {
+                                            // 等待頻道載入完成後，填入型號
+                                            setTimeout(() => {
+                                                const deviceModel = data.settings.device_model || '';
+                                                if (typeof deviceModel === 'object') {
+                                                    // 新格式：多頻道對象
+                                                    getCurrentChannels().forEach(ch => {
+                                                        const element = document.getElementById(`deviceModel${ch}`);
+                                                        if (element) {
+                                                            element.value = deviceModel[ch] || '';
+                                                        }
+                                                    });
+                                                } else {
+                                                    // 舊格式：單一字符串，放入第一個頻道
+                                                    const firstChannel = getCurrentChannels()[0];
+                                                    if (firstChannel) {
+                                                        const element = document.getElementById(`deviceModel${firstChannel}`);
+                                                        if (element) {
+                                                            element.value = deviceModel || '';
+                                                        }
+                                                    }
+                                                }
+                                            }, 500); // 等待500ms讓頻道載入完成
                                         });
                                     } else {
-                                        // 舊格式：單一字符串，放入第一個頻道
-                                        const firstChannel = getCurrentChannels()[0];
-                                        if (firstChannel) {
-                                            const element = document.getElementById(`deviceModel${firstChannel}`);
-                                            if (element) {
-                                                element.value = deviceModel || '';
-                                            }
-                                        }
+                                        console.warn(`儲存的 MAC ID ${deviceSerial} 不在當前可用列表中`);
+                                        // MAC ID 不在列表中，顯示佔位符
+                                        displayChannelPlaceholder();
                                     }
-                                }, 500); // 等待500ms讓頻道載入完成
+                                }, 1000); // 等待1秒讓 MAC ID 選項列表載入完成
                             } else {
                                 // 沒有 MAC ID，顯示佔位符
                                 displayChannelPlaceholder();
                             }
-                            document.getElementById('deviceDescription').value = data.settings.device_description || '';
                             
                             // 如果已有設定，啟用儀表板按鈕
                             if (data.settings.device_name) {
@@ -855,6 +871,13 @@
                             }
                         }, 100);
                         
+                        // 載入完成後更新預覽
+                        setTimeout(() => {
+                            if (typeof updateLivePreview === 'function') {
+                                updateLivePreview();
+                            }
+                        }, 200);
+                        
                         console.log(`已載入MAC ID ${macId} 的設備設定`);
                     } else {
                         console.log(`MAC ID ${macId} 沒有保存的設定，使用預設值`);
@@ -1000,16 +1023,13 @@
                 loadChannelsForMacId(currentValue);
             }
             
-            // 添加 MAC ID 選擇變更事件監聽器
+            // 添加 MAC ID 選擇變更事件監聽器（避免重複綁定）
             select.onchange = function() {
                 const selectedMacId = this.value;
                 console.log('選擇了新的 MAC ID:', selectedMacId);
                 
-                // 更新設備序列號字段
-                const deviceSerialInput = document.getElementById('deviceSerial');
-                if (deviceSerialInput) {
-                    deviceSerialInput.value = selectedMacId;
-                }
+                // 立即更新預覽中的設備序號
+                document.getElementById('previewSerialDetail').textContent = selectedMacId || '未設定';
                 
                 // 載入頻道資訊
                 loadChannelsForMacId(selectedMacId);
@@ -1017,6 +1037,9 @@
                 // 載入該MAC ID的設備設定
                 if (selectedMacId) {
                     loadDeviceSettingsForMacId(selectedMacId);
+                } else {
+                    // 如果未選擇，清空預覽
+                    document.getElementById('previewSerialDetail').textContent = '未設定';
                 }
             };
         }
@@ -1441,7 +1464,35 @@
             document.getElementById('deviceName').addEventListener('input', function() {
                 const hasDeviceName = this.value.trim().length > 0;
                 document.getElementById('dashboardBtn').disabled = !hasDeviceName;
+                
+                // 即時更新預覽
+                updateLivePreview();
             });
+            
+            // 監聽其他欄位的變化以即時更新預覽
+            document.getElementById('deviceLocation').addEventListener('input', updateLivePreview);
+            document.getElementById('deviceDescription').addEventListener('input', updateLivePreview);
+            
+            // 即時更新預覽的函數
+            function updateLivePreview() {
+                const deviceName = document.getElementById('deviceName').value.trim() || '未設定';
+                const deviceLocation = document.getElementById('deviceLocation').value.trim();
+                const deviceSerial = document.getElementById('deviceSerial').value.trim() || '未設定';
+                const deviceDescription = document.getElementById('deviceDescription').value.trim() || '未設定';
+                
+                // 更新預覽內容
+                document.getElementById('previewDeviceName').textContent = deviceName;
+                document.getElementById('previewLocation').textContent = deviceLocation ? ` | ${deviceLocation}` : '';
+                document.getElementById('previewNameDetail').textContent = deviceName;
+                document.getElementById('previewLocationDetail').textContent = deviceLocation || '未設定';
+                document.getElementById('previewSerialDetail').textContent = deviceSerial;
+                document.getElementById('previewDescriptionDetail').textContent = deviceDescription;
+                
+                // 如果有內容就顯示預覽區域
+                if (deviceName !== '未設定' || deviceSerial !== '未設定') {
+                    document.getElementById('previewSection').style.display = 'block';
+                }
+            }
         });
     </script>
     
