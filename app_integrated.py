@@ -4,6 +4,7 @@ from uart_integrated import uart_reader, protocol_manager
 from network_utils import network_checker, create_offline_mode_manager
 from device_settings import DeviceSettingsManager
 from multi_device_settings import MultiDeviceSettingsManager
+from database_manager import DatabaseManager
 import json
 import os
 import time
@@ -152,6 +153,9 @@ device_settings_manager = DeviceSettingsManager()
 
 # 初始化多設備設定管理器
 multi_device_settings_manager = MultiDeviceSettingsManager()
+
+# 初始化資料庫管理器
+database_manager = DatabaseManager()
 
 # 初始化離線模式管理器
 offline_mode_manager = create_offline_mode_manager(config_manager)
@@ -644,6 +648,36 @@ def api_device_settings():
             if mac_id:
                 # 有 MAC ID，使用多設備管理器
                 if multi_device_settings_manager.save_device_settings(mac_id, data):
+                    # 同時將設備資訊保存到資料庫
+                    try:
+                        # 格式化設備型號
+                        device_model = data.get('device_model', {})
+                        if isinstance(device_model, dict):
+                            # 將多頻道型號合併為字串
+                            model_parts = []
+                            for channel, model in device_model.items():
+                                if model and model.strip():
+                                    model_parts.append(f"Ch{channel}:{model}")
+                            formatted_model = "; ".join(model_parts) if model_parts else "未設定"
+                        else:
+                            formatted_model = str(device_model) if device_model else "未設定"
+                        
+                        device_info = {
+                            'mac_id': mac_id,
+                            'device_name': data.get('device_name', ''),
+                            'device_type': '感測器設備',
+                            'device_model': formatted_model,
+                            'factory_area': data.get('device_name', ''),  # 使用設備名稱作為廠區
+                            'floor_level': '1F',  # 預設樓層，可以後續修改
+                            'location_description': data.get('device_location', ''),
+                            'installation_date': datetime.now().date().isoformat(),
+                            'status': 'active'
+                        }
+                        database_manager.register_device(device_info)
+                        logging.info(f"設備 {mac_id} 資訊已同步到資料庫")
+                    except Exception as db_error:
+                        logging.warning(f"設備資訊同步到資料庫失敗: {db_error}")
+                    
                     response_data = {
                         'success': True, 
                         'message': f'設備 {mac_id} 的設定已成功儲存',
@@ -2255,6 +2289,245 @@ def ftp_test_upload():
     except Exception as e:
         logging.exception(f'FTP檔案上傳失敗: {str(e)}')
         return jsonify({'success': False, 'message': f'上傳失敗: {str(e)}'})
+
+# ========== 資料庫相關 API 端點 ==========
+
+@app.route('/api/database/factory-areas', methods=['GET'])
+def api_get_factory_areas():
+    """API: 獲取所有廠區列表"""
+    try:
+        factory_areas = database_manager.get_factory_areas()
+        return jsonify({
+            'success': True,
+            'data': factory_areas,
+            'count': len(factory_areas)
+        })
+    except Exception as e:
+        logging.error(f"獲取廠區列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取廠區列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/floor-levels', methods=['GET'])
+def api_get_floor_levels():
+    """API: 獲取樓層列表"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_levels = database_manager.get_floor_levels(factory_area)
+        return jsonify({
+            'success': True,
+            'data': floor_levels,
+            'count': len(floor_levels),
+            'factory_area': factory_area
+        })
+    except Exception as e:
+        logging.error(f"獲取樓層列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取樓層列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/mac-ids', methods=['GET'])
+def api_get_mac_ids():
+    """API: 獲取 MAC ID 列表"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_ids = database_manager.get_mac_ids(factory_area, floor_level)
+        return jsonify({
+            'success': True,
+            'data': mac_ids,
+            'count': len(mac_ids),
+            'factory_area': factory_area,
+            'floor_level': floor_level
+        })
+    except Exception as e:
+        logging.error(f"獲取 MAC ID 列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取 MAC ID 列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/device-models', methods=['GET'])
+def api_get_device_models():
+    """API: 獲取設備型號列表"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_models = database_manager.get_device_models(factory_area, floor_level, mac_id)
+        return jsonify({
+            'success': True,
+            'data': device_models,
+            'count': len(device_models),
+            'factory_area': factory_area,
+            'floor_level': floor_level,
+            'mac_id': mac_id
+        })
+    except Exception as e:
+        logging.error(f"獲取設備型號列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取設備型號列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/chart-data', methods=['GET'])
+def api_get_chart_data():
+    """API: 獲取圖表數據"""
+    try:
+        # 獲取篩選參數
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        data_type = request.args.get('data_type', 'current')
+        limit = int(request.args.get('limit', 100))
+        
+        # 構建篩選條件
+        filters = {}
+        if factory_area:
+            filters['factory_area'] = factory_area
+        if floor_level:
+            filters['floor_level'] = floor_level
+        if mac_id:
+            filters['mac_id'] = mac_id
+        if device_model:
+            filters['device_model'] = device_model
+            
+        chart_data = database_manager.get_chart_data(data_type, filters, limit)
+        return jsonify({
+            'success': True,
+            'data': chart_data,
+            'count': len(chart_data),
+            'data_type': data_type,
+            'filters': filters
+        })
+    except Exception as e:
+        logging.error(f"獲取圖表數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取圖表數據失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/statistics', methods=['GET'])
+def api_get_statistics():
+    """API: 獲取統計數據"""
+    try:
+        # 獲取篩選參數
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        
+        # 構建篩選條件
+        filters = {}
+        if factory_area:
+            filters['factory_area'] = factory_area
+        if floor_level:
+            filters['floor_level'] = floor_level
+        if mac_id:
+            filters['mac_id'] = mac_id
+        if device_model:
+            filters['device_model'] = device_model
+            
+        statistics = database_manager.get_statistics(filters)
+        return jsonify({
+            'success': True,
+            'data': statistics,
+            'filters': filters
+        })
+    except Exception as e:
+        logging.error(f"獲取統計數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取統計數據失敗: {str(e)}',
+            'data': {}
+        })
+
+@app.route('/api/database/latest-data', methods=['GET'])
+def api_get_latest_data():
+    """API: 獲取最新數據"""
+    try:
+        # 獲取篩選參數
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        limit = int(request.args.get('limit', 10))
+        
+        # 構建篩選條件
+        filters = {}
+        if factory_area:
+            filters['factory_area'] = factory_area
+        if floor_level:
+            filters['floor_level'] = floor_level
+        if mac_id:
+            filters['mac_id'] = mac_id
+        if device_model:
+            filters['device_model'] = device_model
+            
+        latest_data = database_manager.get_latest_data(filters, limit)
+        return jsonify({
+            'success': True,
+            'data': latest_data,
+            'count': len(latest_data),
+            'filters': filters
+        })
+    except Exception as e:
+        logging.error(f"獲取最新數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取最新數據失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/database/test-current-data', methods=['POST'])
+def api_add_test_current_data():
+    """API: 添加測試電流數據"""
+    try:
+        import random
+        from datetime import datetime, timedelta
+        
+        # 生成測試數據
+        test_data_list = []
+        for i in range(10):  # 生成10筆測試數據
+            timestamp = datetime.now() - timedelta(minutes=i*5)
+            test_data = {
+                'timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                'mac_id': 'TEST_MAC_001',
+                'device_type': '測試設備',
+                'device_model': '測試型號H100',
+                'factory_area': '測試廠區A',
+                'floor_level': '1F',
+                'current': round(random.uniform(5.0, 15.0), 2),
+                'voltage': round(random.uniform(220.0, 240.0), 2),
+                'temperature': round(random.uniform(20.0, 35.0), 1),
+                'status': 'active'
+            }
+            test_data_list.append(test_data)
+            
+            # 保存到資料庫
+            database_manager.save_uart_data(test_data)
+        
+        return jsonify({
+            'success': True,
+            'message': f'成功添加 {len(test_data_list)} 筆測試電流數據',
+            'data_count': len(test_data_list)
+        })
+    except Exception as e:
+        logging.error(f"添加測試數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'添加測試數據失敗: {str(e)}'
+        })
+
+# ========== 結束資料庫相關 API 端點 ==========
 
 # 錯誤處理
 @app.errorhandler(404)

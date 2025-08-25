@@ -772,6 +772,80 @@ class LocalFTPServer:
 local_ftp_server = LocalFTPServer()
 
 # 工具函數
+def sync_device_to_database(mac_id, device_data):
+    """將設備設定同步到資料庫"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return False
+    
+    try:
+        # 解析廠區和樓層資訊
+        location = device_data.get('device_location', '')
+        factory_area = parse_factory_area(location)
+        floor_level = parse_floor_level(location)
+        
+        device_info = {
+            'mac_id': mac_id,
+            'device_name': device_data.get('device_name', ''),
+            'device_type': 'H100',  # 預設類型
+            'device_model': device_data.get('device_name', ''),
+            'factory_area': factory_area,
+            'floor_level': floor_level,
+            'location_description': location,
+            'installation_date': None,
+            'last_maintenance': None,
+            'status': 'active'
+        }
+        
+        # 使用資料庫管理器註冊設備
+        success = db_manager.register_device(device_info)
+        if success:
+            logging.info(f"設備 {mac_id} 已同步到資料庫，廠區: {factory_area}, 樓層: {floor_level}")
+        
+        return success
+        
+    except Exception as e:
+        logging.error(f"同步設備 {mac_id} 到資料庫失敗: {e}")
+        return False
+
+def parse_factory_area(location):
+    """從位置資訊解析廠區"""
+    if not location:
+        return '預設廠區'
+    
+    location = location.lower()
+    if 'a' in location or '甲' in location:
+        return 'A廠區'
+    elif 'b' in location or '乙' in location:
+        return 'B廠區'
+    elif 'c' in location or '丙' in location:
+        return 'C廠區'
+    elif '測試' in location or 'test' in location:
+        return '測試廠區'
+    else:
+        return location  # 直接使用原始位置資訊
+
+def parse_floor_level(location):
+    """從位置資訊解析樓層"""
+    if not location:
+        return '1F'
+    
+    import re
+    # 尋找數字後跟 F 的模式
+    match = re.search(r'(\d+)F?', location, re.IGNORECASE)
+    if match:
+        return f"{match.group(1)}F"
+    
+    # 如果沒有找到數字，根據關鍵字判斷
+    location = location.lower()
+    if '一樓' in location or '1樓' in location:
+        return '1F'
+    elif '二樓' in location or '2樓' in location:
+        return '2F'
+    elif '三樓' in location or '3樓' in location:
+        return '3F'
+    else:
+        return '1F'  # 預設為 1 樓
+
 def get_system_info():
     """獲取系統基本資訊"""
     return {
@@ -1097,6 +1171,13 @@ def api_device_settings():
             if mac_id:
                 # 有 MAC ID，使用多設備管理器
                 if multi_device_settings_manager.save_device_settings(mac_id, data):
+                    # 同步設備資訊到資料庫
+                    if DATABASE_AVAILABLE and db_manager:
+                        try:
+                            sync_device_to_database(mac_id, data)
+                        except Exception as e:
+                            logging.warning(f"同步設備 {mac_id} 到資料庫失敗: {e}")
+                    
                     response_data = {
                         'success': True, 
                         'message': f'設備 {mac_id} 的設定已成功儲存',
@@ -3582,12 +3663,18 @@ def get_database_statistics():
         mac_id = request.args.get('mac_id')
         device_model = request.args.get('device_model')
         
-        stats = db_manager.get_statistics(
-            factory_area=factory_area,
-            floor_level=floor_level,
-            mac_id=mac_id,
-            device_model=device_model
-        )
+        # 構建篩選條件字典
+        filters = {}
+        if factory_area:
+            filters['factory_area'] = factory_area
+        if floor_level:
+            filters['floor_level'] = floor_level
+        if mac_id:
+            filters['mac_id'] = mac_id
+        if device_model:
+            filters['device_model'] = device_model
+        
+        stats = db_manager.get_statistics(filters)
         return jsonify({
             'success': True,
             'data': stats
@@ -4206,12 +4293,14 @@ def get_raspberry_pi_stats():
         # 如果 db_manager 有相應的方法，可以這樣調用：
         try:
             # 假設 db_manager 有獲取樹莓派數據的方法
-            rpi_stats = db_manager.get_statistics(source='raspberry_pi')
-            stats.update(rpi_stats)
-        except AttributeError:
-            # 如果沒有特定的方法，使用通用統計
+            # 注意：目前的 get_statistics 方法不支援 source 參數
+            # 可以考慮使用篩選條件來獲取特定來源的數據
             general_stats = db_manager.get_statistics()
             stats.update(general_stats)
+        except Exception as e:
+            # 如果獲取統計失敗，使用預設值
+            logging.warning(f"獲取統計數據失敗: {e}")
+            pass
         
         return jsonify({
             'success': True,

@@ -288,30 +288,17 @@ class DatabaseManager:
             logging.error(f"取得設備型號列表失敗: {e}")
             return []
     
-    def get_chart_data(self, 
-                      factory_area: str = None, 
-                      floor_level: str = None, 
-                      mac_id: str = None, 
-                      device_model: str = None,
-                      start_time: datetime = None,
-                      end_time: datetime = None,
-                      data_type: str = 'temperature',
-                      limit: int = 1000) -> List[Dict]:
+    def get_chart_data(self, data_type: str = 'current', filters: Dict = None, limit: int = 1000) -> List[Dict]:
         """
         取得圖表資料
         
         Args:
-            factory_area: 廠區
-            floor_level: 樓層
-            mac_id: MAC ID
-            device_model: 設備型號
-            start_time: 開始時間
-            end_time: 結束時間
             data_type: 資料類型 (temperature, humidity, voltage, current, power)
+            filters: 篩選條件字典
             limit: 資料筆數限制
             
         Returns:
-            List[Dict]: 圖表資料
+            List[Dict]: 圖表資料，格式為 [{'x': timestamp, 'y': value}, ...]
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -319,35 +306,81 @@ class DatabaseManager:
                 
                 # 建構查詢條件
                 sql = f'''
-                    SELECT timestamp, {data_type}, mac_id, device_model, factory_area, floor_level
+                    SELECT timestamp, {data_type}
                     FROM uart_data
                     WHERE {data_type} IS NOT NULL
                 '''
                 params = []
                 
-                if factory_area:
-                    sql += ' AND factory_area = ?'
-                    params.append(factory_area)
+                if filters:
+                    if 'factory_area' in filters:
+                        sql += ' AND factory_area = ?'
+                        params.append(filters['factory_area'])
+                    
+                    if 'floor_level' in filters:
+                        sql += ' AND floor_level = ?'
+                        params.append(filters['floor_level'])
+                    
+                    if 'mac_id' in filters:
+                        sql += ' AND mac_id = ?'
+                        params.append(filters['mac_id'])
+                    
+                    if 'device_model' in filters:
+                        sql += ' AND device_model = ?'
+                        params.append(filters['device_model'])
                 
-                if floor_level:
-                    sql += ' AND floor_level = ?'
-                    params.append(floor_level)
+                sql += ' ORDER BY timestamp ASC'
                 
-                if mac_id:
-                    sql += ' AND mac_id = ?'
-                    params.append(mac_id)
+                if limit:
+                    sql += f' LIMIT {limit}'
                 
-                if device_model:
-                    sql += ' AND device_model = ?'
-                    params.append(device_model)
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
                 
-                if start_time:
-                    sql += ' AND timestamp >= ?'
-                    params.append(start_time.isoformat())
+                # 轉換為圖表格式
+                result = []
+                for row in rows:
+                    result.append({
+                        'x': row[0],
+                        'y': row[1]
+                    })
                 
-                if end_time:
-                    sql += ' AND timestamp <= ?'
-                    params.append(end_time.isoformat())
+                return result
+                
+        except sqlite3.Error as e:
+            logging.error(f"取得圖表資料失敗: {e}")
+            return []
+    
+    def get_latest_data(self, filters: Dict = None, limit: int = 10) -> List[Dict]:
+        """取得最新資料"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                sql = '''
+                    SELECT timestamp, mac_id, device_model, factory_area, floor_level,
+                           temperature, humidity, voltage, current, power, status
+                    FROM uart_data
+                    WHERE 1=1
+                '''
+                params = []
+                
+                if filters:
+                    if 'factory_area' in filters:
+                        sql += ' AND factory_area = ?'
+                        params.append(filters['factory_area'])
+                    
+                    if 'floor_level' in filters:
+                        sql += ' AND floor_level = ?'
+                        params.append(filters['floor_level'])
+                    
+                    if 'mac_id' in filters:
+                        sql += ' AND mac_id = ?'
+                        params.append(filters['mac_id'])
+                    
+                    if 'device_model' in filters:
+                        sql += ' AND device_model = ?'
+                        params.append(filters['device_model'])
                 
                 sql += ' ORDER BY timestamp DESC'
                 
@@ -362,49 +395,17 @@ class DatabaseManager:
                 for row in rows:
                     result.append({
                         'timestamp': row[0],
-                        'value': row[1],
-                        'mac_id': row[2],
-                        'device_model': row[3],
-                        'factory_area': row[4],
-                        'floor_level': row[5]
+                        'mac_id': row[1],
+                        'device_model': row[2],
+                        'factory_area': row[3],
+                        'floor_level': row[4],
+                        'temperature': row[5],
+                        'humidity': row[6],
+                        'voltage': row[7],
+                        'current': row[8],
+                        'power': row[9],
+                        'status': row[10]
                     })
-                
-                return result
-                
-        except sqlite3.Error as e:
-            logging.error(f"取得圖表資料失敗: {e}")
-            return []
-    
-    def get_latest_data(self, mac_id: str = None, limit: int = 10) -> List[Dict]:
-        """取得最新資料"""
-        try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                sql = '''
-                    SELECT * FROM uart_data
-                '''
-                params = []
-                
-                if mac_id:
-                    sql += ' WHERE mac_id = ?'
-                    params.append(mac_id)
-                
-                sql += ' ORDER BY timestamp DESC'
-                
-                if limit:
-                    sql += f' LIMIT {limit}'
-                
-                cursor.execute(sql, params)
-                rows = cursor.fetchall()
-                
-                # 取得欄位名稱
-                columns = [description[0] for description in cursor.description]
-                
-                # 轉換為字典格式
-                result = []
-                for row in rows:
-                    result.append(dict(zip(columns, row)))
                 
                 return result
                 
@@ -412,12 +413,98 @@ class DatabaseManager:
             logging.error(f"取得最新資料失敗: {e}")
             return []
     
+    def get_statistics(self, filters: Dict = None) -> Dict:
+        """取得統計資訊"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # 建構基本查詢條件
+                where_clause = "WHERE 1=1"
+                params = []
+                
+                if filters:
+                    if 'factory_area' in filters:
+                        where_clause += ' AND factory_area = ?'
+                        params.append(filters['factory_area'])
+                    
+                    if 'floor_level' in filters:
+                        where_clause += ' AND floor_level = ?'
+                        params.append(filters['floor_level'])
+                    
+                    if 'mac_id' in filters:
+                        where_clause += ' AND mac_id = ?'
+                        params.append(filters['mac_id'])
+                    
+                    if 'device_model' in filters:
+                        where_clause += ' AND device_model = ?'
+                        params.append(filters['device_model'])
+                
+                # 總資料筆數
+                cursor.execute(f'SELECT COUNT(*) FROM uart_data {where_clause}', params)
+                total_records = cursor.fetchone()[0]
+                
+                # 電流統計
+                cursor.execute(f'SELECT AVG(current), MAX(current), MIN(current) FROM uart_data {where_clause} AND current IS NOT NULL', params)
+                current_stats = cursor.fetchone()
+                
+                # 溫度統計
+                cursor.execute(f'SELECT AVG(temperature), MAX(temperature), MIN(temperature) FROM uart_data {where_clause} AND temperature IS NOT NULL', params)
+                temp_stats = cursor.fetchone()
+                
+                # 電壓統計
+                cursor.execute(f'SELECT AVG(voltage), MAX(voltage), MIN(voltage) FROM uart_data {where_clause} AND voltage IS NOT NULL', params)
+                voltage_stats = cursor.fetchone()
+                
+                # 最新資料時間
+                cursor.execute(f'SELECT MAX(timestamp) FROM uart_data {where_clause}', params)
+                latest_timestamp = cursor.fetchone()[0]
+                
+                # 今日資料筆數
+                today = datetime.now().date()
+                cursor.execute(f'SELECT COUNT(*) FROM uart_data {where_clause} AND DATE(timestamp) = ?', params + [today])
+                today_records = cursor.fetchone()[0]
+                
+                return {
+                    'total_records': total_records,
+                    'avg_current': current_stats[0] if current_stats[0] else 0,
+                    'max_current': current_stats[1] if current_stats[1] else 0,
+                    'min_current': current_stats[2] if current_stats[2] else 0,
+                    'avg_temperature': temp_stats[0] if temp_stats[0] else 0,
+                    'max_temperature': temp_stats[1] if temp_stats[1] else 0,
+                    'min_temperature': temp_stats[2] if temp_stats[2] else 0,
+                    'avg_voltage': voltage_stats[0] if voltage_stats[0] else 0,
+                    'max_voltage': voltage_stats[1] if voltage_stats[1] else 0,
+                    'min_voltage': voltage_stats[2] if voltage_stats[2] else 0,
+                    'latest_timestamp': latest_timestamp,
+                    'today_records': today_records
+                }
+                
+        except sqlite3.Error as e:
+            logging.error(f"取得統計資訊失敗: {e}")
+            return {}
+    
     def register_device(self, device_info: Dict) -> bool:
         """註冊設備資訊"""
         try:
             with self.lock:
                 with sqlite3.connect(self.db_path) as conn:
                     cursor = conn.cursor()
+                    
+                    # 確保日期欄位是字串或 None
+                    installation_date = device_info.get('installation_date')
+                    last_maintenance = device_info.get('last_maintenance')
+                    
+                    # 如果是 datetime 物件，轉換為 ISO 格式字串
+                    if hasattr(installation_date, 'isoformat'):
+                        installation_date = installation_date.isoformat()
+                    elif installation_date is not None and not isinstance(installation_date, str):
+                        installation_date = str(installation_date)
+                    
+                    if hasattr(last_maintenance, 'isoformat'):
+                        last_maintenance = last_maintenance.isoformat()
+                    elif last_maintenance is not None and not isinstance(last_maintenance, str):
+                        last_maintenance = str(last_maintenance)
                     
                     cursor.execute('''
                         INSERT OR REPLACE INTO device_info (
@@ -433,8 +520,8 @@ class DatabaseManager:
                         device_info.get('factory_area'),
                         device_info.get('floor_level'),
                         device_info.get('location_description'),
-                        device_info.get('installation_date'),
-                        device_info.get('last_maintenance'),
+                        installation_date,
+                        last_maintenance,
                         device_info.get('status', 'active'),
                         datetime.now().isoformat()
                     ))
@@ -471,44 +558,31 @@ class DatabaseManager:
             logging.error(f"取得設備資訊失敗: {e}")
             return []
     
-    def get_statistics(self) -> Dict:
-        """取得統計資訊"""
+    def delete_device(self, mac_id: str) -> bool:
+        """刪除設備資訊"""
         try:
-            with sqlite3.connect(self.db_path) as conn:
-                cursor = conn.cursor()
-                
-                # 總資料筆數
-                cursor.execute('SELECT COUNT(*) FROM uart_data')
-                total_records = cursor.fetchone()[0]
-                
-                # 設備數量
-                cursor.execute('SELECT COUNT(DISTINCT mac_id) FROM uart_data WHERE mac_id IS NOT NULL')
-                total_devices = cursor.fetchone()[0]
-                
-                # 廠區數量
-                cursor.execute('SELECT COUNT(DISTINCT factory_area) FROM uart_data WHERE factory_area IS NOT NULL')
-                total_areas = cursor.fetchone()[0]
-                
-                # 最新資料時間
-                cursor.execute('SELECT MAX(timestamp) FROM uart_data')
-                latest_timestamp = cursor.fetchone()[0]
-                
-                # 今日資料筆數
-                today = datetime.now().date()
-                cursor.execute('SELECT COUNT(*) FROM uart_data WHERE DATE(timestamp) = ?', (today,))
-                today_records = cursor.fetchone()[0]
-                
-                return {
-                    'total_records': total_records,
-                    'total_devices': total_devices,
-                    'total_areas': total_areas,
-                    'latest_timestamp': latest_timestamp,
-                    'today_records': today_records
-                }
-                
+            with self.lock:
+                with sqlite3.connect(self.db_path) as conn:
+                    cursor = conn.cursor()
+                    
+                    # 檢查設備是否存在
+                    cursor.execute('SELECT COUNT(*) FROM device_info WHERE mac_id = ?', (mac_id,))
+                    count = cursor.fetchone()[0]
+                    
+                    if count == 0:
+                        logging.warning(f"設備 {mac_id} 不存在")
+                        return False
+                    
+                    # 刪除設備資訊
+                    cursor.execute('DELETE FROM device_info WHERE mac_id = ?', (mac_id,))
+                    conn.commit()
+                    
+                    logging.info(f"設備 {mac_id} 已刪除")
+                    return True
+                    
         except sqlite3.Error as e:
-            logging.error(f"取得統計資訊失敗: {e}")
-            return {}
+            logging.error(f"刪除設備失敗: {e}")
+            return False
 
 # 全域資料庫管理器實例
 db_manager = DatabaseManager()
