@@ -1282,6 +1282,48 @@ def api_dashboard_areas():
             'models': []
         })
 
+@app.route('/api/selection-options')
+def api_selection_options():
+    """API: 獲取廠區、樓層、MAC ID、設備型號的選項數據"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        
+        if not DATABASE_AVAILABLE or not db_manager:
+            return jsonify({
+                'success': False,
+                'error': '資料庫不可用'
+            }), 500
+        
+        # 取得廠區列表
+        factory_areas = db_manager.get_factory_areas()
+        
+        # 根據選擇的廠區取得樓層列表
+        floor_levels = db_manager.get_floor_levels(factory_area) if factory_area else []
+        
+        # 根據選擇的廠區和樓層取得 MAC ID 列表
+        mac_ids = db_manager.get_mac_ids(factory_area, floor_level) if (factory_area or floor_level) else []
+        
+        # 根據選擇條件取得設備型號列表
+        device_models = db_manager.get_device_models(factory_area, floor_level, mac_id) if (factory_area or floor_level or mac_id) else []
+        
+        return jsonify({
+            'success': True,
+            'data': {
+                'factory_areas': factory_areas,
+                'floor_levels': floor_levels,
+                'mac_ids': mac_ids,
+                'device_models': device_models
+            }
+        })
+    except Exception as e:
+        logging.error(f"取得選項數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # ====== Dashboard 相關路由 ======
 
 @app.route('/dashboard')
