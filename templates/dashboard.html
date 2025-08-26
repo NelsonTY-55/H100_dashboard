@@ -399,6 +399,98 @@
             padding: 1rem 0;
         }
 
+        /* Current Charts Grid Styles */
+        .current-chart-container {
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            border: none;
+            overflow: hidden;
+            margin-bottom: 1rem;
+            transition: var(--transition);
+        }
+
+        .current-chart-container:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+
+        .current-chart-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 0.75rem 1rem;
+            border: none;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-align: center;
+        }
+
+        .current-chart-body {
+            position: relative;
+            height: 250px;
+            padding: 0.5rem;
+        }
+
+        .current-mini-chart {
+            position: relative;
+            height: 100%;
+            width: 100%;
+        }
+
+        /* Chart grid responsive layout */
+        @media (max-width: 1400px) {
+            .current-chart-col {
+                flex: 0 0 auto;
+                width: 25%; /* 4 charts per row on large screens */
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .current-chart-col {
+                flex: 0 0 auto;
+                width: 33.333333%; /* 3 charts per row on medium screens */
+            }
+        }
+
+        @media (max-width: 992px) {
+            .current-chart-col {
+                flex: 0 0 auto;
+                width: 50%; /* 2 charts per row on small screens */
+            }
+        }
+
+        @media (max-width: 576px) {
+            .current-chart-col {
+                flex: 0 0 auto;
+                width: 100%; /* 1 chart per row on extra small screens */
+            }
+        }
+
+        /* Default: 5 charts per row on extra large screens */
+        .current-chart-col {
+            flex: 0 0 auto;
+            width: 20%;
+        }
+
+        .loading-spinner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 200px;
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+        }
+
+        .loading-spinner i {
+            margin-right: 0.5rem;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         .navbar-brand {
             font-weight: 700;
             font-size: 1.5rem;
@@ -680,6 +772,98 @@
             transform: translateY(-2px);
             box-shadow: 0 5px 15px rgba(90, 98, 104, 0.4);
         }
+
+        /* 電流圖表專用樣式 */
+        .current-chart-col {
+            flex: 0 0 20%;
+            max-width: 20%;
+            padding: 0.75rem;
+        }
+
+        .current-chart-container {
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            overflow: hidden;
+            transition: var(--transition);
+            height: 320px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .current-chart-container:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+        }
+
+        .current-chart-header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 1rem;
+            font-size: 0.9rem;
+            font-weight: 600;
+            text-align: center;
+            flex-shrink: 0;
+        }
+
+        .current-chart-body {
+            padding: 1rem;
+            flex-grow: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+
+        .current-chart-body canvas {
+            max-height: 200px !important;
+        }
+
+        /* 響應式設計 */
+        @media (max-width: 1400px) {
+            .current-chart-col {
+                flex: 0 0 25%;
+                max-width: 25%;
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .current-chart-col {
+                flex: 0 0 33.333333%;
+                max-width: 33.333333%;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .current-chart-col {
+                flex: 0 0 50%;
+                max-width: 50%;
+            }
+        }
+
+        @media (max-width: 576px) {
+            .current-chart-col {
+                flex: 0 0 100%;
+                max-width: 100%;
+            }
+        }
+
+        /* 電流圖表網格 */
+        #currentChartsGrid {
+            display: flex;
+            flex-wrap: wrap;
+            margin: -0.75rem;
+        }
+
+        /* 電流數據表格樣式 */
+        .table-responsive {
+            border-radius: var(--border-radius);
+            overflow: hidden;
+        }
+
+        .table-hover tbody tr:hover {
+            background-color: rgba(0,123,255,0.05);
+        }
     </style>
 </head>
 <body>
@@ -931,173 +1115,10 @@
                                 系統運行中
                             </div>
                         </div>
-                        <button class="btn btn-light btn-sm me-2" onclick="addTestData()">
-                            <i class="fas fa-plus me-1"></i>
-                            測試數據
-                        </button>
                         <button class="btn btn-light btn-sm" onclick="refreshDashboard()">
                             <i class="fas fa-sync-alt me-1"></i>
                             重新整理
                         </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Device Selection Menu -->
-    <div class="container mt-4">
-        <div class="row">
-            <div class="col-12">
-                <div class="card main-content-card animate__animated animate__fadeInUp">
-                    <div class="card-header">
-                        <i class="fas fa-building me-2"></i>
-                        設備選擇選單
-                    </div>
-                    <div class="card-body">
-                        <!-- Filter Form -->
-                        <form id="filterForm">
-                            <div class="row g-3 mb-4">
-                                <!-- Factory Area -->
-                                <div class="col-md-3">
-                                    <label for="factoryArea" class="form-label">
-                                        <i class="fas fa-industry me-1"></i>廠區
-                                    </label>
-                                    <select class="form-select" id="factoryArea" name="factoryArea">
-                                        <option value="">請選擇廠區</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- Floor Level -->
-                                <div class="col-md-3">
-                                    <label for="floorLevel" class="form-label">
-                                        <i class="fas fa-layer-group me-1"></i>樓層
-                                    </label>
-                                    <select class="form-select" id="floorLevel" name="floorLevel">
-                                        <option value="">請選擇樓層</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- MAC ID -->
-                                <div class="col-md-3">
-                                    <label for="macId" class="form-label">
-                                        <i class="fas fa-wifi me-1"></i>MAC ID
-                                    </label>
-                                    <select class="form-select" id="macId" name="macId">
-                                        <option value="">請選擇 MAC ID</option>
-                                    </select>
-                                </div>
-                                
-                                <!-- Device Model -->
-                                <div class="col-md-3">
-                                    <label for="deviceModel" class="form-label">
-                                        <i class="fas fa-microchip me-1"></i>設備型號
-                                    </label>
-                                    <select class="form-select" id="deviceModel" name="deviceModel">
-                                        <option value="">請選擇設備型號</option>
-                                    </select>
-                                </div>
-                            </div>
-                            
-                            <!-- Action Buttons -->
-                            <div class="row">
-                                <div class="col-12">
-                                    <div class="d-flex gap-2 justify-content-end">
-                                        <button type="button" class="btn btn-info" onclick="syncDeviceSettings()">
-                                            <i class="fas fa-sync me-1"></i>同步設備設定
-                                        </button>
-                                        <button type="button" class="btn btn-secondary" onclick="resetFilters()">
-                                            <i class="fas fa-redo me-1"></i>重設
-                                        </button>
-                                        <button type="button" class="btn btn-primary" onclick="updateChart()">
-                                            <i class="fas fa-chart-line me-1"></i>產生電流圖表
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </form>
-
-                        
-                        <!-- Current Data Display Section -->
-                        <div id="currentDataSection" style="display: none;">
-                            <hr class="my-4">
-                            
-                            <!-- Current Statistics Overview -->
-                            <div class="row mb-4">
-                                <div class="col-12">
-                                    <h5 class="mb-3">
-                                        <i class="fas fa-bolt me-2"></i>
-                                        電流數據統計
-                                    </h5>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card success">
-                                        <div class="stat-icon success">
-                                            <i class="fas fa-chart-line"></i>
-                                        </div>
-                                        <div class="stat-value" id="avgCurrent">--</div>
-                                        <div class="stat-label">平均電流 (A)</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card warning">
-                                        <div class="stat-icon warning">
-                                            <i class="fas fa-arrow-up"></i>
-                                        </div>
-                                        <div class="stat-value" id="maxCurrent">--</div>
-                                        <div class="stat-label">最大電流 (A)</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card info">
-                                        <div class="stat-icon info">
-                                            <i class="fas fa-arrow-down"></i>
-                                        </div>
-                                        <div class="stat-value" id="minCurrent">--</div>
-                                        <div class="stat-label">最小電流 (A)</div>
-                                    </div>
-                                </div>
-                                <div class="col-md-3">
-                                    <div class="stat-card danger">
-                                        <div class="stat-icon danger">
-                                            <i class="fas fa-database"></i>
-                                        </div>
-                                        <div class="stat-value" id="currentRecordsCount">0</div>
-                                        <div class="stat-label">數據筆數</div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Current Chart -->
-                            <div class="row mb-4">
-                                <div class="col-12">
-                                    <div class="card main-content-card">
-                                        <div class="card-header">
-                                            <i class="fas fa-chart-line me-2"></i>
-                                            電流趨勢圖表
-                                        </div>
-                                        <div class="chart-container">
-                                            <canvas id="currentChart"></canvas>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Latest Current Data -->
-                            <div class="row">
-                                <div class="col-12">
-                                    <div class="card main-content-card">
-                                        <div class="card-header">
-                                            <i class="fas fa-clock me-2"></i>
-                                            最新電流數據
-                                        </div>
-                                        <div class="card-body p-0" id="latestCurrentData">
-                                            <!-- Latest data will be inserted here -->
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -1115,12 +1136,6 @@
             // 每秒更新時間
             setInterval(updateCurrentTime, 1000);
             
-            // 載入篩選選項
-            loadFilterOptions();
-            
-            // 綁定篩選事件
-            bindFilterEvents();
-            
             // 自動載入最新電流數據（每5秒更新一次）
             loadLatestCurrentDataAuto();
             setInterval(loadLatestCurrentDataAuto, 5000);
@@ -1135,28 +1150,426 @@
             }
         }
 
-        // 綁定篩選事件
-        function bindFilterEvents() {
-            // 篩選條件變更事件
-            document.getElementById('factoryArea').addEventListener('change', function() {
-                loadFloorLevels(this.value);
-                loadMacIds();
-                loadDeviceModels();
-            });
+        // 剩餘的圖表相關函數保留
 
-            document.getElementById('floorLevel').addEventListener('change', function() {
-                loadMacIds();
-                loadDeviceModels();
-            });
+        // 載入樓層列表
+        async function loadFloorLevels(factoryArea = '') {
+            try {
+                const url = factoryArea ? 
+                    `/api/database/floor-levels?factory_area=${encodeURIComponent(factoryArea)}` :
+                    '/api/database/floor-levels';
+                
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                const select = document.getElementById('floorLevel');
+                select.innerHTML = '<option value="">請選擇樓層</option>';
+                
+                if (result.success && result.data) {
+                    result.data.forEach(level => {
+                        const option = document.createElement('option');
+                        option.value = level;
+                        option.textContent = level;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('載入樓層列表失敗:', error);
+            }
+        }
 
-            document.getElementById('macId').addEventListener('change', function() {
-                loadDeviceModels();
+        // 載入MAC ID列表
+        async function loadMacIds() {
+            try {
+                const factoryArea = document.getElementById('factoryArea').value;
+                const floorLevel = document.getElementById('floorLevel').value;
+                
+                if (!factoryArea || !floorLevel) {
+                    const select = document.getElementById('macId');
+                    select.innerHTML = '<option value="">請先選擇廠區和樓層</option>';
+                    return;
+                }
+                
+                const params = new URLSearchParams();
+                params.append('factory_area', factoryArea);
+                params.append('floor_level', floorLevel);
+                
+                const response = await fetch(`/api/database/mac-ids?${params.toString()}`);
+                const result = await response.json();
+                
+                const select = document.getElementById('macId');
+                select.innerHTML = '<option value="">請選擇 MAC ID</option>';
+                
+                if (result.success && result.data) {
+                    result.data.forEach(macId => {
+                        const option = document.createElement('option');
+                        option.value = macId;
+                        option.textContent = macId;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('載入 MAC ID 列表失敗:', error);
+            }
+        }
+
+        // 載入設備型號列表
+        async function loadDeviceModels() {
+            try {
+                const factoryArea = document.getElementById('factoryArea').value;
+                const floorLevel = document.getElementById('floorLevel').value;
+                const macId = document.getElementById('macId').value;
+                
+                if (!factoryArea || !floorLevel || !macId) {
+                    const select = document.getElementById('deviceModel');
+                    select.innerHTML = '<option value="">請先選擇廠區、樓層和 MAC ID</option>';
+                    return;
+                }
+                
+                const params = new URLSearchParams();
+                params.append('factory_area', factoryArea);
+                params.append('floor_level', floorLevel);
+                params.append('mac_id', macId);
+                
+                const response = await fetch(`/api/database/device-models?${params.toString()}`);
+                const result = await response.json();
+                
+                const select = document.getElementById('deviceModel');
+                select.innerHTML = '<option value="">請選擇設備型號</option>';
+                
+                if (result.success && result.data) {
+                    result.data.forEach(model => {
+                        const option = document.createElement('option');
+                        option.value = model;
+                        option.textContent = model;
+                        select.appendChild(option);
+                    });
+                }
+            } catch (error) {
+                console.error('載入設備型號列表失敗:', error);
+            }
+        }
+
+        // 重設篩選條件
+        function resetFilters() {
+            document.getElementById('factoryArea').value = '';
+            document.getElementById('floorLevel').value = '';
+            document.getElementById('macId').value = '';
+            document.getElementById('deviceModel').value = '';
+            document.getElementById('timeRange').value = '10';
+            
+            // 隱藏圖表區域
+            document.getElementById('currentChartsSection').style.display = 'none';
+            
+            // 重新載入篩選選項
+            loadFilterOptions();
+        }
+
+        // 產生電流圖表（主要功能）
+        async function generateCurrentCharts() {
+            const factoryArea = document.getElementById('factoryArea').value;
+            const floorLevel = document.getElementById('floorLevel').value;
+            const macId = document.getElementById('macId').value;
+            const deviceModel = document.getElementById('deviceModel').value;
+            const timeRange = document.getElementById('timeRange').value;
+            
+            // 驗證必要參數 - 按照新的邏輯順序: 廠區→樓層→MAC ID→設備型號
+            if (!factoryArea) {
+                alert('請選擇廠區');
+                return;
+            }
+            if (!floorLevel) {
+                alert('請選擇樓層');
+                return;
+            }
+            if (!macId) {
+                alert('請選擇 MAC ID');
+                return;
+            }
+            if (!deviceModel) {
+                alert('請選擇設備型號');
+                return;
+            }
+            
+            try {
+                showLoading('正在生成電流圖表...');
+                
+                // 構建查詢參數
+                const params = new URLSearchParams();
+                params.append('factory_area', factoryArea);
+                params.append('floor_level', floorLevel);
+                params.append('mac_id', macId);
+                params.append('device_model', deviceModel);
+                params.append('time_range', timeRange);
+                
+                // 更新選中設備資訊
+                document.getElementById('selectedDeviceInfo').textContent = 
+                    `${factoryArea} > ${floorLevel} > ${macId} > ${deviceModel}`;
+                
+                // 載入電流圖表數據
+                await loadCurrentChartData(params);
+                
+                // 載入統計數據
+                await loadCurrentStatistics(params);
+                
+                // 載入最新數據
+                await loadLatestCurrentData(params);
+                
+                // 顯示圖表區域
+                document.getElementById('currentChartsSection').style.display = 'block';
+                
+                // 滾動到圖表區域
+                document.getElementById('currentChartsSection').scrollIntoView({ 
+                    behavior: 'smooth' 
+                });
+                
+            } catch (error) {
+                console.error('生成電流圖表失敗:', error);
+                alert('生成電流圖表失敗，請稍後再試');
+            } finally {
+                hideLoading();
+            }
+        }
+
+        // 載入電流圖表數據
+        async function loadCurrentChartData(params) {
+            try {
+                const response = await fetch(`/api/database/chart-data?${params.toString()}`);
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    createCurrentCharts(result.data);
+                } else {
+                    console.warn('無電流圖表資料:', result.message);
+                    createCurrentCharts({ labels: [], datasets: [] });
+                }
+            } catch (error) {
+                console.error('載入電流圖表數據失敗:', error);
+            }
+        }
+
+        // 建立電流圖表（每行5個）
+        function createCurrentCharts(chartData) {
+            const chartsGrid = document.getElementById('currentChartsGrid');
+            chartsGrid.innerHTML = '';
+            
+            if (!chartData.datasets || chartData.datasets.length === 0) {
+                chartsGrid.innerHTML = `
+                    <div class="col-12">
+                        <div class="text-center text-muted p-4">
+                            <i class="fas fa-chart-line fa-3x mb-3"></i>
+                            <h5>暫無電流數據</h5>
+                            <p>請檢查設備連接或稍後再試</p>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+            
+            // 為每個數據集創建獨立的圖表
+            chartData.datasets.forEach((dataset, index) => {
+                const chartCol = document.createElement('div');
+                chartCol.className = 'current-chart-col';
+                
+                chartCol.innerHTML = `
+                    <div class="current-chart-container">
+                        <div class="current-chart-header">
+                            ${dataset.label}
+                        </div>
+                        <div class="current-chart-body">
+                            <canvas id="currentChart_${index}"></canvas>
+                        </div>
+                    </div>
+                `;
+                
+                chartsGrid.appendChild(chartCol);
+                
+                // 創建 Chart.js 圖表
+                const ctx = document.getElementById(`currentChart_${index}`).getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: chartData.labels,
+                        datasets: [dataset]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '時間'
+                                },
+                                ticks: {
+                                    maxTicksLimit: 6
+                                }
+                            },
+                            y: {
+                                display: true,
+                                title: {
+                                    display: true,
+                                    text: '電流 (A)'
+                                },
+                                beginAtZero: true
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
             });
         }
 
-        // 載入篩選選項
-        async function loadFilterOptions() {
-            await loadFactoryAreas();
+        // 載入統計數據
+        async function loadCurrentStatistics(params) {
+            try {
+                // 從圖表數據計算統計
+                const response = await fetch(`/api/database/statistics?${params.toString()}`);
+                const result = await response.json();
+                
+                if (result.success && result.data && result.data.datasets) {
+                    const allValues = [];
+                    result.data.datasets.forEach(dataset => {
+                        allValues.push(...dataset.data.filter(val => val !== null && val !== undefined));
+                    });
+                    
+                    if (allValues.length > 0) {
+                        const avg = allValues.reduce((a, b) => a + b, 0) / allValues.length;
+                        const max = Math.max(...allValues);
+                        const min = Math.min(...allValues);
+                        
+                        updateCurrentStatistics({
+                            avg_current: avg,
+                            max_current: max,
+                            min_current: min,
+                            total_records: allValues.length
+                        });
+                    } else {
+                        updateCurrentStatistics({
+                            avg_current: 0,
+                            max_current: 0,
+                            min_current: 0,
+                            total_records: 0
+                        });
+                    }
+                }
+            } catch (error) {
+                console.error('載入統計數據失敗:', error);
+            }
+        }
+
+        // 更新電流統計資料
+        function updateCurrentStatistics(stats) {
+            document.getElementById('avgCurrent').textContent = stats.avg_current ? 
+                stats.avg_current.toFixed(2) : '--';
+            document.getElementById('maxCurrent').textContent = stats.max_current ? 
+                stats.max_current.toFixed(2) : '--';
+            document.getElementById('minCurrent').textContent = stats.min_current ? 
+                stats.min_current.toFixed(2) : '--';
+            document.getElementById('currentRecordsCount').textContent = stats.total_records || 0;
+        }
+
+        // 載入最新電流數據
+        async function loadLatestCurrentData(params) {
+            try {
+                const response = await fetch(`/api/database/latest-data?${params.toString()}`);
+                const result = await response.json();
+                
+                if (result.success && result.raw_data) {
+                    updateLatestCurrentDataTable(result.raw_data);
+                } else {
+                    updateLatestCurrentDataTable([]);
+                }
+            } catch (error) {
+                console.error('載入最新電流數據失敗:', error);
+                updateLatestCurrentDataTable([]);
+            }
+        }
+
+        // 更新最新電流數據表格
+        function updateLatestCurrentDataTable(data) {
+            const tbody = document.getElementById('latestCurrentDataBody');
+            
+            if (!data || data.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="4" class="text-center text-muted p-4">
+                            <i class="fas fa-database"></i> 暫無電流數據
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+            
+            // 只顯示最新的10筆數據
+            const recentData = data.slice(-10).reverse();
+            
+            tbody.innerHTML = recentData.map(item => `
+                <tr>
+                    <td>${new Date(item.timestamp || Date.now()).toLocaleString('zh-TW')}</td>
+                    <td>頻道 ${item.channel || 0}</td>
+                    <td><strong>${parseFloat(item.value || 0).toFixed(2)}</strong></td>
+                    <td>${item.unit || 'A'}</td>
+                </tr>
+            `).join('');
+        }
+
+        // 顯示載入動畫
+        function showLoading(message = '載入中...') {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                const messageElement = overlay.querySelector('p');
+                if (messageElement) {
+                    messageElement.textContent = message;
+                }
+                overlay.style.display = 'flex';
+            }
+        }
+
+        // 隱藏載入動畫
+        function hideLoading() {
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) {
+                overlay.style.display = 'none';
+            }
+        }
+
+        // 自動載入最新電流數據
+        function loadLatestCurrentDataAuto() {
+            // 如果圖表區域已顯示，則自動更新數據
+            const chartsSection = document.getElementById('currentChartsSection');
+            if (chartsSection && chartsSection.style.display !== 'none') {
+                const factoryArea = document.getElementById('factoryArea').value;
+                const floorLevel = document.getElementById('floorLevel').value;
+                const macId = document.getElementById('macId').value;
+                const deviceModel = document.getElementById('deviceModel').value;
+                const timeRange = document.getElementById('timeRange').value;
+                
+                if (factoryArea && floorLevel && macId && deviceModel) {
+                    const params = new URLSearchParams();
+                    params.append('factory_area', factoryArea);
+                    params.append('floor_level', floorLevel);
+                    params.append('mac_id', macId);
+                    params.append('device_model', deviceModel);
+                    params.append('time_range', timeRange);
+                    
+                    loadLatestCurrentData(params);
+                }
+            }
         }
 
         // 載入廠區列表
@@ -1245,14 +1658,18 @@
                 const floorLevel = document.getElementById('floorLevel').value;
                 const macId = document.getElementById('macId').value;
                 
-                let url = '/api/database/device-models?';
+                if (!factoryArea || !floorLevel || !macId) {
+                    const select = document.getElementById('deviceModel');
+                    select.innerHTML = '<option value="">請先選擇廠區、樓層和 MAC ID</option>';
+                    return;
+                }
+                
                 const params = new URLSearchParams();
+                params.append('factory_area', factoryArea);
+                params.append('floor_level', floorLevel);
+                params.append('mac_id', macId);
                 
-                if (factoryArea) params.append('factory_area', factoryArea);
-                if (floorLevel) params.append('floor_level', floorLevel);
-                if (macId) params.append('mac_id', macId);
-                
-                const response = await fetch(url + params.toString());
+                const response = await fetch(`/api/database/device-models?${params.toString()}`);
                 const result = await response.json();
                 
                 const select = document.getElementById('deviceModel');
@@ -1551,56 +1968,6 @@
             console.log('重新整理儀表板');
             location.reload();
         }
-
-        // 自動載入最新電流數據（不需要篩選器）
-        async function loadLatestCurrentDataAuto() {
-            try {
-                // 載入總體電流統計
-                const statsResponse = await fetch('/api/database/statistics');
-                const statsResult = await statsResponse.json();
-                
-                if (statsResult.success && statsResult.data) {
-                    // 更新頁面上的統計資訊卡片（如果存在的話）
-                    updateAutoStatistics(statsResult.data);
-                }
-                
-                // 載入最新電流數據
-                const dataResponse = await fetch('/api/database/latest-data?limit=5');
-                const dataResult = await dataResponse.json();
-                
-                if (dataResult.success && dataResult.data) {
-                    updateAutoLatestData(dataResult.data);
-                }
-                
-                console.log('自動更新電流數據完成');
-            } catch (error) {
-                console.error('自動載入電流數據失敗:', error);
-            }
-        }
-
-        // 更新自動統計資訊
-        function updateAutoStatistics(stats) {
-            // 在頁面頂部顯示最新統計（如果有統計卡片的話）
-            const systemStatus = document.getElementById('systemStatus');
-            if (systemStatus && stats.avg_current !== undefined && stats.avg_current !== null) {
-                systemStatus.innerHTML = `
-                    <i class="fas fa-bolt pulse me-2"></i>
-                    平均電流: ${stats.avg_current.toFixed(2)}A
-                `;
-                systemStatus.className = 'status-indicator status-online';
-            }
-        }
-
-        // 更新自動最新數據（可在控制台查看）
-        function updateAutoLatestData(data) {
-            if (data && data.length > 0) {
-                const latestEntry = data[0];
-                if (latestEntry.current !== null && latestEntry.current !== undefined) {
-                    console.log(`最新電流數據: ${latestEntry.current}A (${new Date(latestEntry.timestamp).toLocaleString('zh-TW')})`);
-                }
-            }
-        }
-
         // 添加測試電流數據
         async function addTestData() {
             try {

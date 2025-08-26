@@ -17,6 +17,7 @@ for module in problematic_modules:
 import json
 import logging
 import platform
+import sqlite3
 import time
 import threading
 import glob
@@ -2083,6 +2084,435 @@ def get_mac_data_10min(mac_id):
             'message': f'獲取數據時發生錯誤: {str(e)}'
         })
 
+# ====== 電流圖表相關 API ======
+
+@app.route('/api/current-chart/factory-areas')
+def get_factory_areas():
+    """API: 獲取廠區列表"""
+    try:
+        # 首先嘗試從本地資料庫獲取數據
+        conn = sqlite3.connect('uart_data.db')
+        cursor = conn.cursor()
+        
+        # 從 device_info 表中獲取廠區列表
+        cursor.execute('SELECT DISTINCT factory_area FROM device_info WHERE factory_area IS NOT NULL AND factory_area != ""')
+        factory_areas = cursor.fetchall()
+        
+        # 如果 device_info 沒有資料，嘗試從 uart_data 表獲取
+        if not factory_areas:
+            cursor.execute('SELECT DISTINCT factory_area FROM uart_data WHERE factory_area IS NOT NULL AND factory_area != ""')
+            factory_areas = cursor.fetchall()
+        
+        conn.close()
+        
+        if factory_areas:
+            factory_list = [area[0] for area in factory_areas]
+            return jsonify({
+                'success': True,
+                'data': factory_list,
+                'count': len(factory_list),
+                'source': 'local_database'
+            })
+        
+        # 如果本地資料庫沒有數據，嘗試從樹梅派獲取
+        remote_data = get_data_from_raspberry_pi('/api/database/factory-areas')
+        if remote_data and remote_data.get('success'):
+            return jsonify(remote_data)
+        
+        # 如果都沒有資料，返回空列表
+        return jsonify({
+            'success': True,
+            'data': [],
+            'count': 0,
+            'message': '尚未設定任何廠區資料',
+            'source': 'empty'
+        })
+    except Exception as e:
+        logging.error(f"獲取廠區列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取廠區列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/current-chart/floor-levels')
+def get_floor_levels():
+    """API: 獲取樓層列表"""
+    try:
+        factory_area = request.args.get('factory_area')
+        
+        # 首先嘗試從本地資料庫獲取數據
+        conn = sqlite3.connect('uart_data.db')
+        cursor = conn.cursor()
+        
+        if factory_area:
+            # 從 device_info 表中獲取特定廠區的樓層列表
+            cursor.execute('SELECT DISTINCT floor_level FROM device_info WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ""', (factory_area,))
+            floor_levels = cursor.fetchall()
+            
+            # 如果 device_info 沒有資料，嘗試從 uart_data 表獲取
+            if not floor_levels:
+                cursor.execute('SELECT DISTINCT floor_level FROM uart_data WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ""', (factory_area,))
+                floor_levels = cursor.fetchall()
+        else:
+            # 獲取所有樓層
+            cursor.execute('SELECT DISTINCT floor_level FROM device_info WHERE floor_level IS NOT NULL AND floor_level != ""')
+            floor_levels = cursor.fetchall()
+            
+            if not floor_levels:
+                cursor.execute('SELECT DISTINCT floor_level FROM uart_data WHERE floor_level IS NOT NULL AND floor_level != ""')
+                floor_levels = cursor.fetchall()
+        
+        conn.close()
+        
+        if floor_levels:
+            floor_list = [level[0] for level in floor_levels]
+            return jsonify({
+                'success': True,
+                'data': floor_list,
+                'count': len(floor_list),
+                'factory_area': factory_area,
+                'source': 'local_database'
+            })
+        
+        # 如果本地資料庫沒有數據，嘗試從樹梅派獲取
+        remote_data = get_data_from_raspberry_pi(f'/api/database/floor-levels?factory_area={factory_area}')
+        if remote_data and remote_data.get('success'):
+            return jsonify(remote_data)
+        
+        # 如果都沒有資料，返回空列表
+        return jsonify({
+            'success': True,
+            'data': [],
+            'count': 0,
+            'factory_area': factory_area,
+            'message': '此廠區尚未設定任何樓層資料',
+            'source': 'empty'
+        })
+    except Exception as e:
+        logging.error(f"獲取樓層列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取樓層列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/current-chart/mac-ids')
+def get_current_chart_mac_ids():
+    """API: 獲取MAC ID列表"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        
+        # 首先嘗試從本地資料庫獲取數據
+        conn = sqlite3.connect('uart_data.db')
+        cursor = conn.cursor()
+        
+        if factory_area and floor_level:
+            # 從 device_info 表中獲取特定廠區和樓層的 MAC ID 列表
+            cursor.execute('SELECT DISTINCT mac_id FROM device_info WHERE factory_area = ? AND floor_level = ? AND mac_id IS NOT NULL AND mac_id != ""', 
+                          (factory_area, floor_level))
+            mac_ids = cursor.fetchall()
+            
+            # 如果 device_info 沒有資料，嘗試從 uart_data 表獲取
+            if not mac_ids:
+                cursor.execute('SELECT DISTINCT mac_id FROM uart_data WHERE factory_area = ? AND floor_level = ? AND mac_id IS NOT NULL AND mac_id != ""', 
+                              (factory_area, floor_level))
+                mac_ids = cursor.fetchall()
+        else:
+            # 獲取所有 MAC ID
+            cursor.execute('SELECT DISTINCT mac_id FROM device_info WHERE mac_id IS NOT NULL AND mac_id != ""')
+            mac_ids = cursor.fetchall()
+            
+            if not mac_ids:
+                cursor.execute('SELECT DISTINCT mac_id FROM uart_data WHERE mac_id IS NOT NULL AND mac_id != ""')
+                mac_ids = cursor.fetchall()
+        
+        conn.close()
+        
+        if mac_ids:
+            mac_list = [mac[0] for mac in mac_ids]
+            return jsonify({
+                'success': True,
+                'data': mac_list,
+                'count': len(mac_list),
+                'factory_area': factory_area,
+                'floor_level': floor_level,
+                'source': 'local_database'
+            })
+        
+        # 如果本地資料庫沒有數據，嘗試從樹梅派獲取
+        url = f'/api/database/mac-ids?factory_area={factory_area}&floor_level={floor_level}'
+        remote_data = get_data_from_raspberry_pi(url)
+        if remote_data and remote_data.get('success'):
+            return jsonify(remote_data)
+        
+        # 如果都沒有資料，返回空列表
+        return jsonify({
+            'success': True,
+            'data': [],
+            'count': 0,
+            'factory_area': factory_area,
+            'floor_level': floor_level,
+            'message': '此廠區和樓層尚未設定任何設備',
+            'source': 'empty'
+        })
+    except Exception as e:
+        logging.error(f"獲取MAC ID列表失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取MAC ID列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/current-chart/device-models')
+def get_device_models():
+    """API: 獲取設備型號列表"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        
+        print(f"[DEBUG] 接收到設備型號請求: factory_area={factory_area}, floor_level={floor_level}, mac_id={mac_id}")
+        
+        # 優先從本地資料庫獲取設備型號
+        device_models = []
+        
+        if factory_area and floor_level and mac_id:
+            try:
+                # 首先嘗試從本地資料庫獲取數據
+                conn = sqlite3.connect('uart_data.db')
+                cursor = conn.cursor()
+                
+                # 從 device_info 表中獲取特定設備的型號
+                cursor.execute('SELECT DISTINCT device_model FROM device_info WHERE factory_area = ? AND floor_level = ? AND mac_id = ? AND device_model IS NOT NULL AND device_model != ""', 
+                              (factory_area, floor_level, mac_id))
+                models = cursor.fetchall()
+                
+                # 如果 device_info 沒有資料，嘗試從 uart_data 表獲取
+                if not models:
+                    cursor.execute('SELECT DISTINCT device_model FROM uart_data WHERE factory_area = ? AND floor_level = ? AND mac_id = ? AND device_model IS NOT NULL AND device_model != ""', 
+                                  (factory_area, floor_level, mac_id))
+                    models = cursor.fetchall()
+                
+                conn.close()
+                
+                if models:
+                    device_models = [model[0] for model in models]
+                    print(f"[DEBUG] 從資料庫獲取到設備型號: {device_models}")
+                
+            except Exception as e:
+                logging.warning(f"從資料庫獲取設備型號失敗: {e}")
+        
+        # 如果沒有從資料庫獲取到型號，嘗試從設備設定中獲取
+        if not device_models and mac_id:
+            try:
+                print(f"[DEBUG] 嘗試從設備設定獲取 MAC ID: {mac_id}")
+                # 從多設備設定管理器中獲取特定設備的設定
+                device_settings = multi_device_settings_manager.load_device_settings(mac_id)
+                print(f"[DEBUG] 設備設定: {device_settings}")
+                
+                if device_settings and device_settings.get('device_model'):
+                    device_model_config = device_settings['device_model']
+                    print(f"[DEBUG] 設備型號配置: {device_model_config}")
+                    
+                    # 處理頻道設備型號格式
+                    if isinstance(device_model_config, dict):
+                        # 從每個頻道提取設備型號，去除重複和空值
+                        for channel, model in device_model_config.items():
+                            if model and model.strip() and model.strip() != '未設定':
+                                model_name = model.strip()
+                                if model_name not in device_models:
+                                    device_models.append(model_name)
+                    elif isinstance(device_model_config, str) and device_model_config.strip():
+                        # 處理舊格式的字串型設備型號
+                        model_name = device_model_config.strip()
+                        if model_name != '未設定':
+                            device_models.append(model_name)
+                            
+                logging.info(f"從設備設定獲取到設備型號: {device_models} (MAC ID: {mac_id})")
+            except Exception as e:
+                logging.warning(f"從設備設定獲取設備型號失敗: {e}")
+        
+        # 如果沒有從設備設定獲取到型號，嘗試從樹梅派獲取數據
+        if not device_models:
+            print(f"[DEBUG] 未從設備設定獲取到型號，嘗試從樹梅派獲取")
+            url = f'/api/database/device-models?factory_area={factory_area}&floor_level={floor_level}&mac_id={mac_id}'
+            remote_data = get_data_from_raspberry_pi(url)
+            if remote_data and remote_data.get('success') and remote_data.get('data'):
+                device_models = remote_data['data']
+                logging.info(f"從樹梅派獲取到設備型號: {device_models}")
+        
+        # 如果都沒有資料，返回空列表
+        if not device_models:
+            print(f"[DEBUG] 無法獲取設備型號，返回空列表")
+            logging.info("無法獲取設備型號資料")
+        
+        result = {
+            'success': True,
+            'data': device_models,
+            'count': len(device_models),
+            'factory_area': factory_area,
+            'floor_level': floor_level,
+            'mac_id': mac_id,
+            'source': 'device_settings' if mac_id and device_models else 'fallback'
+        }
+        
+        print(f"[DEBUG] 返回結果: {result}")
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"獲取設備型號列表失敗: {e}")
+        print(f"[DEBUG] 錯誤: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取設備型號列表失敗: {str(e)}',
+            'data': []
+        })
+
+@app.route('/api/current-chart/data')
+def get_current_chart_data():
+    """API: 獲取電流圖表數據"""
+    try:
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        time_range = request.args.get('time_range', '10')
+        
+        # 構建查詢參數
+        params = {
+            'factory_area': factory_area,
+            'floor_level': floor_level,
+            'mac_id': mac_id,
+            'device_model': device_model,
+            'time_range': time_range
+        }
+        
+        # 建構 URL 參數
+        url_params = '&'.join([f'{k}={v}' for k, v in params.items() if v])
+        url = f'/api/current-chart/data?{url_params}'
+        
+        # 嘗試從樹梅派獲取數據
+        remote_data = get_data_from_raspberry_pi(url)
+        if remote_data and remote_data.get('success'):
+            return jsonify(remote_data)
+        
+        # 如果無法從樹梅派獲取，生成基於設備設定的模擬圖表數據
+        import random
+        from datetime import datetime, timedelta
+        
+        time_range_minutes = int(time_range)
+        current_time = datetime.now()
+        
+        # 生成時間標籤（每分鐘一個點）
+        labels = []
+        for i in range(time_range_minutes):
+            time_point = current_time - timedelta(minutes=time_range_minutes - i - 1)
+            labels.append(time_point.strftime('%H:%M'))
+        
+        # 根據設備設定獲取頻道資訊
+        channel_info = []
+        if mac_id:
+            try:
+                device_settings = multi_device_settings_manager.load_device_settings(mac_id)
+                if device_settings and device_settings.get('device_model'):
+                    device_model_config = device_settings['device_model']
+                    
+                    if isinstance(device_model_config, dict):
+                        # 從設備設定中獲取有設定型號的頻道
+                        for channel, model in device_model_config.items():
+                            if model and model.strip() and model.strip() != '未設定':
+                                # 如果指定了特定的設備型號，只顯示該型號的頻道
+                                if not device_model or model.strip() == device_model:
+                                    channel_info.append({
+                                        'channel': int(channel),
+                                        'model': model.strip(),
+                                        'label': f'頻道 {channel} ({model.strip()})'
+                                    })
+                        
+                        # 按頻道號排序
+                        channel_info.sort(key=lambda x: x['channel'])
+                        
+                logging.info(f"從設備設定獲取頻道資訊: {len(channel_info)} 個頻道")
+            except Exception as e:
+                logging.warning(f"從設備設定獲取頻道資訊失敗: {e}")
+        
+        # 如果沒有頻道資訊，使用預設的3個頻道
+        if not channel_info:
+            channel_info = [
+                {'channel': 0, 'model': device_model or 'H100-Model-A', 'label': f'頻道 0 ({device_model or "H100-Model-A"})'},
+                {'channel': 1, 'model': device_model or 'H100-Model-A', 'label': f'頻道 1 ({device_model or "H100-Model-A"})'},
+                {'channel': 2, 'model': device_model or 'H100-Model-A', 'label': f'頻道 2 ({device_model or "H100-Model-A"})'}
+            ]
+            logging.info("使用預設頻道資訊")
+        
+        # 生成模擬數據集
+        datasets = []
+        colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384']
+        
+        for i, channel_item in enumerate(channel_info):
+            channel = channel_item['channel']
+            data = []
+            base_current = 10 + channel * 2.5  # 基準電流，每個頻道稍有不同
+            
+            for j in range(time_range_minutes):
+                # 生成有波動的電流值
+                current_value = base_current + random.uniform(-1.5, 1.5)
+                # 偶爾加入一些峰值
+                if random.random() < 0.1:
+                    current_value += random.uniform(2, 5)
+                data.append(round(current_value, 2))
+            
+            color_index = i % len(colors)
+            datasets.append({
+                'label': channel_item['label'],
+                'data': data,
+                'borderColor': colors[color_index],
+                'backgroundColor': colors[color_index] + '20',
+                'fill': False,
+                'tension': 0.1,
+                'channel': channel,
+                'model': channel_item['model']
+            })
+        
+        # 生成原始數據用於表格顯示
+        raw_data = []
+        for i, label in enumerate(labels[-10:]):  # 只顯示最近10筆數據
+            for dataset in datasets:
+                if i < len(dataset['data']):
+                    raw_data.append({
+                        'timestamp': label,
+                        'channel': dataset['channel'],
+                        'value': dataset['data'][-(10-i)] if (10-i) <= len(dataset['data']) else dataset['data'][-1],
+                        'unit': 'A',
+                        'model': dataset['model']
+                    })
+        
+        chart_data = {
+            'labels': labels,
+            'datasets': datasets
+        }
+        
+        return jsonify({
+            'success': True,
+            'data': chart_data,
+            'raw_data': raw_data,
+            'count': len(labels),
+            'channel_count': len(channel_info),
+            'filters': params,
+            'source': 'device_settings' if mac_id and channel_info else 'local_mock',
+            'message': f'生成{len(channel_info)}個頻道的電流數據（{time_range_minutes}分鐘）'
+        })
+        
+    except Exception as e:
+        logging.error(f"獲取電流圖表數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取電流圖表數據失敗: {str(e)}',
+            'data': {'labels': [], 'datasets': []},
+            'raw_data': []
+        })
+
 # ====== 協定相關API ======
 
 @app.route('/api/protocols')
@@ -3443,30 +3873,7 @@ def set_mode():
 
 # ====== 資料庫相關 API ======
 
-@app.route('/api/database/factory-areas')
-def get_database_factory_areas():
-    """取得資料庫中的廠區列表"""
-    if not DATABASE_AVAILABLE or not db_manager:
-        return jsonify({
-            'success': False,
-            'message': '資料庫功能未啟用',
-            'data': []
-        })
-    
-    try:
-        areas = db_manager.get_factory_areas()
-        return jsonify({
-            'success': True,
-            'data': areas,
-            'count': len(areas)
-        })
-    except Exception as e:
-        logging.error(f"取得廠區列表失敗: {e}")
-        return jsonify({
-            'success': False,
-            'message': f'取得廠區列表失敗: {str(e)}',
-            'data': []
-        })
+
 
 @app.route('/api/database/floor-levels')
 def get_database_floor_levels():

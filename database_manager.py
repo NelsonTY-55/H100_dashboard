@@ -191,10 +191,16 @@ class DatabaseManager:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
+                # 從兩個表中查詢廠區，合併結果
                 cursor.execute('''
                     SELECT DISTINCT factory_area 
-                    FROM uart_data 
-                    WHERE factory_area IS NOT NULL AND factory_area != ''
+                    FROM (
+                        SELECT factory_area FROM uart_data 
+                        WHERE factory_area IS NOT NULL AND factory_area != ''
+                        UNION
+                        SELECT factory_area FROM device_info 
+                        WHERE factory_area IS NOT NULL AND factory_area != ''
+                    ) AS combined
                     ORDER BY factory_area
                 ''')
                 return [row[0] for row in cursor.fetchall()]
@@ -210,15 +216,25 @@ class DatabaseManager:
                 if factory_area:
                     cursor.execute('''
                         SELECT DISTINCT floor_level 
-                        FROM uart_data 
-                        WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ''
+                        FROM (
+                            SELECT floor_level FROM uart_data 
+                            WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ''
+                            UNION
+                            SELECT floor_level FROM device_info 
+                            WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ''
+                        ) AS combined
                         ORDER BY floor_level
-                    ''', (factory_area,))
+                    ''', (factory_area, factory_area))
                 else:
                     cursor.execute('''
                         SELECT DISTINCT floor_level 
-                        FROM uart_data 
-                        WHERE floor_level IS NOT NULL AND floor_level != ''
+                        FROM (
+                            SELECT floor_level FROM uart_data 
+                            WHERE floor_level IS NOT NULL AND floor_level != ''
+                            UNION
+                            SELECT floor_level FROM device_info 
+                            WHERE floor_level IS NOT NULL AND floor_level != ''
+                        ) AS combined
                         ORDER BY floor_level
                     ''')
                 return [row[0] for row in cursor.fetchall()]
@@ -232,22 +248,65 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                sql = '''
-                    SELECT DISTINCT mac_id 
-                    FROM uart_data 
-                    WHERE mac_id IS NOT NULL AND mac_id != ''
-                '''
-                params = []
-                
-                if factory_area:
-                    sql += ' AND factory_area = ?'
-                    params.append(factory_area)
-                
-                if floor_level:
-                    sql += ' AND floor_level = ?'
-                    params.append(floor_level)
-                
-                sql += ' ORDER BY mac_id'
+                # 從兩個表中查詢 MAC ID
+                if factory_area and floor_level:
+                    sql = '''
+                        SELECT DISTINCT mac_id 
+                        FROM (
+                            SELECT mac_id FROM uart_data 
+                            WHERE mac_id IS NOT NULL AND mac_id != '' 
+                            AND factory_area = ? AND floor_level = ?
+                            UNION
+                            SELECT mac_id FROM device_info 
+                            WHERE mac_id IS NOT NULL AND mac_id != '' 
+                            AND factory_area = ? AND floor_level = ?
+                        ) AS combined
+                        ORDER BY mac_id
+                    '''
+                    params = [factory_area, floor_level, factory_area, floor_level]
+                elif factory_area:
+                    sql = '''
+                        SELECT DISTINCT mac_id 
+                        FROM (
+                            SELECT mac_id FROM uart_data 
+                            WHERE mac_id IS NOT NULL AND mac_id != '' 
+                            AND factory_area = ?
+                            UNION
+                            SELECT mac_id FROM device_info 
+                            WHERE mac_id IS NOT NULL AND mac_id != '' 
+                            AND factory_area = ?
+                        ) AS combined
+                        ORDER BY mac_id
+                    '''
+                    params = [factory_area, factory_area]
+                elif floor_level:
+                    sql = '''
+                        SELECT DISTINCT mac_id 
+                        FROM (
+                            SELECT mac_id FROM uart_data 
+                            WHERE mac_id IS NOT NULL AND mac_id != '' 
+                            AND floor_level = ?
+                            UNION
+                            SELECT mac_id FROM device_info 
+                            WHERE mac_id IS NOT NULL AND mac_id != '' 
+                            AND floor_level = ?
+                        ) AS combined
+                        ORDER BY mac_id
+                    '''
+                    params = [floor_level, floor_level]
+                else:
+                    sql = '''
+                        SELECT DISTINCT mac_id 
+                        FROM (
+                            SELECT mac_id FROM uart_data 
+                            WHERE mac_id IS NOT NULL AND mac_id != ''
+                            UNION
+                            SELECT mac_id FROM device_info 
+                            WHERE mac_id IS NOT NULL AND mac_id != ''
+                        ) AS combined
+                        ORDER BY mac_id
+                    '''
+                    params = []
                 
                 cursor.execute(sql, params)
                 return [row[0] for row in cursor.fetchall()]
@@ -261,28 +320,42 @@ class DatabaseManager:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
-                sql = '''
-                    SELECT DISTINCT device_model 
-                    FROM uart_data 
-                    WHERE device_model IS NOT NULL AND device_model != ''
-                '''
+                # 從兩個表中查詢設備型號
+                conditions = []
                 params = []
                 
                 if factory_area:
-                    sql += ' AND factory_area = ?'
+                    conditions.append('factory_area = ?')
                     params.append(factory_area)
                 
                 if floor_level:
-                    sql += ' AND floor_level = ?'
+                    conditions.append('floor_level = ?')
                     params.append(floor_level)
                 
                 if mac_id:
-                    sql += ' AND mac_id = ?'
+                    conditions.append('mac_id = ?')
                     params.append(mac_id)
                 
-                sql += ' ORDER BY device_model'
+                where_clause = ''
+                if conditions:
+                    where_clause = ' AND ' + ' AND '.join(conditions)
                 
-                cursor.execute(sql, params)
+                sql = f'''
+                    SELECT DISTINCT device_model 
+                    FROM (
+                        SELECT device_model FROM uart_data 
+                        WHERE device_model IS NOT NULL AND device_model != ''{where_clause}
+                        UNION
+                        SELECT device_model FROM device_info 
+                        WHERE device_model IS NOT NULL AND device_model != ''{where_clause}
+                    ) AS combined
+                    ORDER BY device_model
+                '''
+                
+                # 每個條件需要重複參數，因為有兩個查詢
+                all_params = params + params
+                
+                cursor.execute(sql, all_params)
                 return [row[0] for row in cursor.fetchall()]
         except sqlite3.Error as e:
             logging.error(f"取得設備型號列表失敗: {e}")
@@ -583,6 +656,81 @@ class DatabaseManager:
         except sqlite3.Error as e:
             logging.error(f"刪除設備失敗: {e}")
             return False
+
+    def get_current_data(self, filters: Dict) -> List[Dict]:
+        """
+        獲取電流數據
+        
+        Args:
+            filters: 篩選條件字典，包含：
+                - factory_area: 廠區
+                - floor_level: 樓層
+                - mac_id: MAC ID
+                - device_model: 設備型號
+                - time_range: 時間範圍（分鐘）
+        
+        Returns:
+            List[Dict]: 電流數據列表
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                # 構建查詢條件
+                where_conditions = []
+                params = []
+                
+                if filters.get('factory_area'):
+                    where_conditions.append('factory_area = ?')
+                    params.append(filters['factory_area'])
+                
+                if filters.get('floor_level'):
+                    where_conditions.append('floor_level = ?')
+                    params.append(filters['floor_level'])
+                
+                if filters.get('mac_id'):
+                    where_conditions.append('mac_id = ?')
+                    params.append(filters['mac_id'])
+                
+                if filters.get('device_model'):
+                    where_conditions.append('device_model = ?')
+                    params.append(filters['device_model'])
+                
+                # 時間範圍條件
+                time_range = filters.get('time_range', 10)  # 預設10分鐘
+                time_limit = datetime.now() - timedelta(minutes=int(time_range))
+                where_conditions.append('timestamp >= ?')
+                params.append(time_limit.isoformat())
+                
+                # 只查詢有電流數據的記錄
+                where_conditions.append('current IS NOT NULL')
+                
+                where_clause = 'WHERE ' + ' AND '.join(where_conditions) if where_conditions else ''
+                
+                query = f'''
+                    SELECT timestamp, mac_id, device_model, factory_area, floor_level, current, 'A' as unit, 0 as channel
+                    FROM uart_data
+                    {where_clause}
+                    ORDER BY timestamp DESC
+                    LIMIT 1000
+                '''
+                
+                cursor.execute(query, params)
+                rows = cursor.fetchall()
+                
+                # 轉換為字典格式
+                columns = ['timestamp', 'mac_id', 'device_model', 'factory_area', 'floor_level', 'value', 'unit', 'channel']
+                current_data = []
+                for row in rows:
+                    data_dict = dict(zip(columns, row))
+                    current_data.append(data_dict)
+                
+                logging.info(f"查詢到 {len(current_data)} 筆電流數據")
+                return current_data
+                
+        except sqlite3.Error as e:
+            logging.error(f"查詢電流數據失敗: {e}")
+            return []
 
 # 全域資料庫管理器實例
 db_manager = DatabaseManager()

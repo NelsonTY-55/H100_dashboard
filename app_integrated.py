@@ -2487,6 +2487,121 @@ def api_get_latest_data():
             'data': []
         })
 
+# ========== 電流圖表相關 API 端點 ==========
+
+@app.route('/api/current-chart/data', methods=['GET'])
+def api_get_current_chart_data():
+    """API: 獲取電流圖表數據"""
+    try:
+        # 獲取篩選參數
+        factory_area = request.args.get('factory_area')
+        floor_level = request.args.get('floor_level')
+        mac_id = request.args.get('mac_id')
+        device_model = request.args.get('device_model')
+        time_range = int(request.args.get('time_range', 10))  # 時間範圍（分鐘）
+        
+        # 驗證時間範圍
+        if not (5 <= time_range <= 30):
+            return jsonify({
+                'success': False,
+                'message': '時間範圍必須在5-30分鐘之間'
+            })
+        
+        # 構建篩選條件
+        filters = {
+            'factory_area': factory_area,
+            'floor_level': floor_level,
+            'mac_id': mac_id,
+            'device_model': device_model,
+            'time_range': time_range
+        }
+        
+        # 從資料庫獲取電流數據
+        current_data = database_manager.get_current_data(filters)
+        
+        # 如果資料庫沒有數據，嘗試從 UART 即時數據獲取
+        if not current_data:
+            logging.info("資料庫無數據，嘗試從UART獲取即時數據")
+            uart_data = uart_reader.get_latest_data()
+            current_data = []
+            
+            if uart_data:
+                from datetime import datetime, timedelta
+                time_limit = datetime.now() - timedelta(minutes=time_range)
+                
+                for entry in uart_data:
+                    # 檢查時間和篩選條件
+                    entry_time = datetime.fromisoformat(entry.get('timestamp', ''))
+                    if (entry_time >= time_limit and 
+                        entry.get('mac_id') == mac_id and 
+                        entry.get('unit') == 'A'):  # 只取電流數據
+                        
+                        current_data.append({
+                            'timestamp': entry.get('timestamp'),
+                            'mac_id': entry.get('mac_id'),
+                            'channel': entry.get('channel'),
+                            'value': entry.get('value'),
+                            'unit': entry.get('unit'),
+                            'factory_area': factory_area,
+                            'floor_level': floor_level,
+                            'device_model': device_model
+                        })
+        
+        # 組織數據格式以便前端繪圖
+        chart_data = {
+            'labels': [],
+            'datasets': []
+        }
+        
+        # 按頻道分組數據
+        channel_data = {}
+        for item in current_data:
+            channel = item.get('channel', 0)
+            if channel not in channel_data:
+                channel_data[channel] = {
+                    'label': f'頻道 {channel}',
+                    'data': [],
+                    'timestamps': []
+                }
+            
+            channel_data[channel]['data'].append(float(item.get('value', 0)))
+            channel_data[channel]['timestamps'].append(item.get('timestamp'))
+        
+        # 生成圖表標籤和數據集
+        if channel_data:
+            # 使用第一個頻道的時間戳作為標籤
+            first_channel = list(channel_data.keys())[0]
+            chart_data['labels'] = channel_data[first_channel]['timestamps']
+            
+            # 為每個頻道創建數據集
+            colors = ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40', '#FF6384']
+            for i, (channel, data) in enumerate(channel_data.items()):
+                chart_data['datasets'].append({
+                    'label': f'頻道 {channel} 電流',
+                    'data': data['data'],
+                    'borderColor': colors[i % len(colors)],
+                    'backgroundColor': colors[i % len(colors)] + '20',
+                    'fill': False,
+                    'tension': 0.1
+                })
+        
+        return jsonify({
+            'success': True,
+            'data': chart_data,
+            'raw_data': current_data,
+            'count': len(current_data),
+            'filters': filters,
+            'message': f'獲取到 {len(current_data)} 筆電流數據'
+        })
+        
+    except Exception as e:
+        logging.error(f"獲取電流圖表數據失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'獲取電流圖表數據失敗: {str(e)}',
+            'data': {'labels': [], 'datasets': []}
+        })
+
 @app.route('/api/database/test-current-data', methods=['POST'])
 def api_add_test_current_data():
     """API: 添加測試電流數據"""
