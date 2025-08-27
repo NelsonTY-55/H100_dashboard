@@ -13,18 +13,18 @@
     "updated_at": "2025-08-04T11:44:25.809503"
   },
   "0013A20042537F54": {
-    "device_name": "ATC",
-    "device_location": "1F",
+    "device_name": "L3C",
+    "device_location": "3F",
     "device_model": {
-      "0": "1",
-      "1": "2",
-      "2": "7",
-      "3": "6"
+      "0": "H100-001",
+      "1": "H100-002",
+      "2": "H100-003",
+      "3": "H100-004"
     },
     "device_serial": "0013A20042537F54",
-    "device_description": "這是一個用於測試的設備設定",
+    "device_description": "3f廠區3F設備",
     "redirect_to_dashboard": false,
-    "created_at": "2025-08-06T13:40:46.922943",
-    "updated_at": "2025-08-25T15:01:28.445310"
+    "updated_at": "2025-08-26T11:51:19.018477",
+    "created_at": "2025-08-06T13:40:46.922943"
   }
 }

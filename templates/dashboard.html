@@ -975,6 +975,7 @@
         </ul>
     </div>
     <style>
+        /* 統一的側邊欄樣式 */
         .sidebar-collapsible {
             width: 220px;
             min-width: 60px;
@@ -987,13 +988,16 @@
             transition: width 0.3s cubic-bezier(.4,0,.2,1);
             box-shadow: 2px 0 10px rgba(0,0,0,0.04);
         }
+        
         .sidebar-collapsible.collapsed {
             width: 60px !important;
         }
+        
         .sidebar-collapsible .sidebar-header {
             background: #1e40af;
             border-bottom: 1px solid #3b82f6;
         }
+        
         .sidebar-collapsible .sidebar-logo {
             width: 36px;
             height: 36px;
@@ -1001,10 +1005,12 @@
             border-radius: 10px;
             font-size: 1.3rem;
         }
+        
         .sidebar-collapsible .sidebar-title {
             font-size: 1.15rem;
             transition: opacity 0.2s;
         }
+        
         .sidebar-collapsible.collapsed .sidebar-title,
         .sidebar-collapsible.collapsed .sidebar-link-text {
             opacity: 0;
@@ -1012,6 +1018,7 @@
             overflow: hidden;
             pointer-events: none;
         }
+        
         .sidebar-collapsible .nav-link {
             color: #fff !important;
             font-weight: 500;
@@ -1020,21 +1027,29 @@
             margin-bottom: 0.2rem;
             transition: background 0.2s, color 0.2s;
         }
-        .sidebar-collapsible .nav-link.active, .sidebar-collapsible .nav-link:hover {
+        
+        .sidebar-collapsible .nav-link.active, 
+        .sidebar-collapsible .nav-link:hover {
             background: linear-gradient(90deg, #60a5fa 0%, #818cf8 100%);
             color: #fff !important;
         }
+        
         .sidebar-collapsible .nav-link i {
             min-width: 22px;
             text-align: center;
         }
+        
+        /* 主體佈局 */
         body {
             padding-left: 220px;
             transition: padding-left 0.3s cubic-bezier(.4,0,.2,1);
         }
+        
         .sidebar-collapsible.collapsed ~ *:not(.sidebar-collapsible) {
             transition: margin-left 0.3s cubic-bezier(.4,0,.2,1);
         }
+        
+        /* 響應式設計 */
         @media (max-width: 991.98px) {
             body {
                 padding-left: 0 !important;
@@ -1045,6 +1060,68 @@
             .sidebar-collapsible.show {
                 left: 0;
             }
+        }
+        
+        /* 載入動畫 */
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.9);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+        
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            animation: spin 2s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        /* 圖表樣式 */
+        .current-chart-col {
+            width: 20%;
+            padding: 10px;
+            float: left;
+        }
+        
+        .current-chart-container {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .current-chart-header {
+            background: #f8f9fa;
+            padding: 10px;
+            font-weight: bold;
+            border-bottom: 1px solid #dee2e6;
+            text-align: center;
+        }
+        
+        .current-chart-body {
+            padding: 10px;
+            height: 200px;
+        }
+        
+        /* 清除浮動 */
+        .current-chart-col::after {
+            content: "";
+            display: table;
+            clear: both;
         }
     </style>
     <script>
@@ -1074,72 +1151,6 @@
         document.addEventListener('click', function(e) {
             if(window.innerWidth < 992 && sidebar.classList.contains('show')){
                 if(!sidebar.contains(e.target) && e.target !== collapseBtn){
-                    sidebar.classList.remove('show');
-                    document.body.style.paddingLeft = '0';
-                }
-            }
-        });
-    });
-    </script>
-    <style>
-        body {
-            padding-left: 220px;
-            transition: padding-left 0.3s;
-        }
-        .sidebar {
-            min-width: 200px;
-            max-width: 260px;
-            background: #fff;
-            border-right: 1px solid #e9ecef;
-            box-shadow: 2px 0 10px rgba(0,0,0,0.04);
-        }
-        .sidebar .nav-link {
-            color: #495057;
-            font-weight: 500;
-            padding: 0.75rem 1.5rem;
-            border-radius: 0 30px 30px 0;
-            margin-bottom: 0.2rem;
-            transition: background 0.2s, color 0.2s;
-        }
-        .sidebar .nav-link.active, .sidebar .nav-link:hover {
-            background: linear-gradient(90deg, #667eea22 0%, #764ba222 100%);
-            color: #4f3cc9;
-        }
-        .sidebar .sidebar-header {
-            background: #f8f9fa;
-        }
-        @media (max-width: 991.98px) {
-            body {
-                padding-left: 0 !important;
-            }
-            #sidebar {
-                left: -220px;
-            }
-            #sidebar.show {
-                left: 0;
-            }
-        }
-    </style>
-    <script>
-    // 側邊欄收合功能
-    document.addEventListener('DOMContentLoaded', function() {
-        var sidebar = document.getElementById('sidebar');
-        var toggleBtn = document.getElementById('sidebarToggle');
-        function toggleSidebar() {
-            sidebar.classList.toggle('show');
-            if (sidebar.classList.contains('show')) {
-                document.body.style.paddingLeft = '220px';
-            } else {
-                document.body.style.paddingLeft = '0';
-            }
-        }
-        if (toggleBtn) {
-            toggleBtn.addEventListener('click', toggleSidebar);
-        }
-        // 點擊主畫面時自動收合（小螢幕）
-        document.addEventListener('click', function(e) {
-            if(window.innerWidth < 992 && sidebar.classList.contains('show')){
-                if(!sidebar.contains(e.target) && e.target !== toggleBtn){
                     sidebar.classList.remove('show');
                     document.body.style.paddingLeft = '0';
                 }
@@ -1180,278 +1191,403 @@
         </div>
     </div>
 
-    <!-- Main Content Area -->
-    <div class="container-fluid mt-4">
-        <!-- Device Selection Card -->
-        <div class="row mb-4">
-            <div class="col-12">
-                <div class="card main-content-card">
-                    <div class="card-header">
-                        <h5 class="mb-0">
-                            <i class="fas fa-filter me-2"></i>
-                            設備選擇與篩選
-                        </h5>
-                    </div>
-                    <div class="card-body">
-                        <div class="row g-3">
-                            <!-- 廠區選擇 -->
-                            <div class="col-md-3">
-                                <label for="factoryArea" class="form-label">廠區：</label>
-                                <select class="form-select" id="factoryArea" onchange="onFactoryAreaChange()">
-                                    <option value="">請選擇廠區</option>
-                                </select>
-                            </div>
-                            
-                            <!-- 樓層選擇 -->
-                            <div class="col-md-3">
-                                <label for="floorLevel" class="form-label">樓層：</label>
-                                <select class="form-select" id="floorLevel" onchange="onFloorLevelChange()" disabled>
-                                    <option value="">請先選擇廠區</option>
-                                </select>
-                            </div>
-                            
-                            <!-- MAC ID 選擇 -->
-                            <div class="col-md-3">
-                                <label for="macId" class="form-label">MAC ID：</label>
-                                <select class="form-select" id="macId" onchange="onMacIdChange()" disabled>
-                                    <option value="">請先選擇樓層</option>
-                                </select>
-                            </div>
-                            
-                            <!-- 設備型號選擇 -->
-                            <div class="col-md-3">
-                                <label for="deviceModel" class="form-label">設備型號：</label>
-                                <select class="form-select" id="deviceModel" disabled>
-                                    <option value="">請先選擇 MAC ID</option>
-                                </select>
-                            </div>
-                        </div>
-                        
-                        <div class="row mt-3">
-                            <div class="col-12">
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-primary" onclick="generateCharts()">
-                                        <i class="fas fa-chart-line me-2"></i>生成圖表
-                                    </button>
-                                    <button class="btn btn-outline-secondary" onclick="clearSelection()">
-                                        <i class="fas fa-times me-2"></i>清除選擇
-                                    </button>
-                                    <button class="btn btn-outline-info" onclick="refreshSelection()">
-                                        <i class="fas fa-sync me-2"></i>重新整理選項
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                        
-                        <!-- 當前選擇顯示 -->
-                        <div class="row mt-3">
-                            <div class="col-12">
-                                <div class="alert alert-light mb-0">
-                                    <h6 class="mb-2 fw-bold">當前選擇：</h6>
-                                    <div id="selectedDeviceInfo" class="text-muted">
-                                        尚未選擇設備
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Charts Section -->
-        <div id="currentChartsSection" style="display: none;">
-            <!-- Statistics Cards -->
-            <div class="row mb-4">
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <h5 class="card-title text-primary">平均電流</h5>
-                            <h3 class="card-text"><span id="avgCurrent">--</span> A</h3>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <h5 class="card-title text-success">最大電流</h5>
-                            <h3 class="card-text"><span id="maxCurrent">--</span> A</h3>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <h5 class="card-title text-info">最小電流</h5>
-                            <h3 class="card-text"><span id="minCurrent">--</span> A</h3>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-3">
-                    <div class="card text-center">
-                        <div class="card-body">
-                            <h5 class="card-title text-warning">資料筆數</h5>
-                            <h3 class="card-text"><span id="currentRecordsCount">--</span></h3>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Charts Grid -->
-            <div class="row mb-4">
-                <div class="col-12">
-                    <div class="card main-content-card">
-                        <div class="card-header">
-                            <h5 class="mb-0">
-                                <i class="fas fa-chart-line me-2"></i>
-                                電流監控圖表
-                            </h5>
-                        </div>
-                        <div class="card-body">
-                            <div id="currentChartsGrid">
-                                <!-- Charts will be generated here -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Latest Data Table -->
-            <div class="row mb-4">
-                <div class="col-12">
-                    <div class="card main-content-card">
-                        <div class="card-header">
-                            <h5 class="mb-0">
-                                <i class="fas fa-table me-2"></i>
-                                最新數據
-                            </h5>
-                        </div>
-                        <div class="card-body">
-                            <div class="table-responsive">
-                                <table class="table table-hover">
-                                    <thead>
-                                        <tr>
-                                            <th>時間</th>
-                                            <th>MAC ID</th>
-                                            <th>Channel</th>
-                                            <th>電流值</th>
-                                            <th>狀態</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="latestDataTable">
-                                        <!-- Latest data rows will be inserted here -->
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <script>
+        // ==================== 全域變數 ====================
         let currentChart = null;
-        let currentDataType = 'current'; // 只關注電流
-
+        let currentDataType = 'current';
+        let currentDeviceSettings = null;
+        
+        // ==================== 工具函數 ====================
+        
+        // API 請求輔助函數
+        async function apiRequest(url, options = {}) {
+            try {
+                const response = await fetch(url, {
+                    headers: {
+                        'Content-Type': 'application/json',
+                        ...options.headers
+                    },
+                    ...options
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                return await response.json();
+            } catch (error) {
+                console.error(`API request failed for ${url}:`, error);
+                throw error;
+            }
+        }
+        
+        // 安全地獲取元素
+        function getElement(id) {
+            const element = document.getElementById(id);
+            if (!element) {
+                console.warn(`Element with id '${id}' not found`);
+            }
+            return element;
+        }
+        
+        // 更新選擇框選項
+        function updateSelectOptions(selectId, options, defaultText = '請選擇') {
+            const select = getElement(selectId);
+            if (!select) return;
+            
+            select.innerHTML = `<option value="">${defaultText}</option>`;
+            
+            if (options && options.length > 0) {
+                options.forEach(option => {
+                    const optionElement = document.createElement('option');
+                    optionElement.value = option;
+                    optionElement.textContent = option;
+                    select.appendChild(optionElement);
+                });
+            }
+        }
+        
+        // ==================== 主要初始化 ====================
+        
         // 頁面載入時初始化
         document.addEventListener('DOMContentLoaded', function() {
-            updateCurrentTime();
-            
-            // 每秒更新時間
-            setInterval(updateCurrentTime, 1000);
-            
-            // 自動載入最新電流數據（每5秒更新一次）
-            loadLatestCurrentDataAuto();
-            setInterval(loadLatestCurrentDataAuto, 5000);
-            
-            // 初始化選擇器
-            initializeSelectors();
+            initializeDashboard();
         });
+        
+        async function initializeDashboard() {
+            try {
+                // 更新時間
+                updateCurrentTime();
+                setInterval(updateCurrentTime, 1000);
+                
+                // 自動載入最新電流數據
+                loadLatestCurrentDataAuto();
+                setInterval(loadLatestCurrentDataAuto, 5000);
+                
+                // 初始化選擇器
+                await initializeSelectors();
+                
+                console.log('Dashboard 初始化完成');
+            } catch (error) {
+                console.error('Dashboard 初始化失敗:', error);
+            }
+        }
 
+        // ==================== 選擇器初始化 ====================
+        
         // 初始化選擇器
         async function initializeSelectors() {
-            await loadFactoryAreas();
+            try {
+                // 同時載入廠區和樓層選項
+                await Promise.all([
+                    loadFactoryAreas(),
+                    loadFloorLevels()
+                ]);
+                
+                // 載入保存的選擇
+                setTimeout(loadSavedSelection, 1000);
+                
+                console.log('選擇器初始化完成');
+            } catch (error) {
+                console.error('選擇器初始化失敗:', error);
+            }
         }
-
+        
+        // ==================== 事件處理函數 ====================
+        
         // 廠區選擇變更事件
         function onFactoryAreaChange() {
-            const factoryArea = document.getElementById('factoryArea').value;
-            const floorSelect = document.getElementById('floorLevel');
-            const macSelect = document.getElementById('macId');
-            const modelSelect = document.getElementById('deviceModel');
+            const factoryArea = getElement('factoryArea')?.value || '';
+            console.log('廠區變更:', factoryArea);
             
             // 重置下層選項
-            floorSelect.innerHTML = '<option value="">載入中...</option>';
-            macSelect.innerHTML = '<option value="">請先選擇樓層</option>';
-            modelSelect.innerHTML = '<option value="">請先選擇 MAC ID</option>';
-            
-            // 更新選擇顯示
+            resetDependentSelectors(['macId', 'deviceModel']);
             updateSelectedDeviceInfo();
-            
-            if (factoryArea) {
-                // 啟用樓層選擇
-                floorSelect.disabled = false;
-                loadFloorLevels(factoryArea);
-            } else {
-                // 禁用下層選項
-                floorSelect.disabled = true;
-                macSelect.disabled = true;
-                modelSelect.disabled = true;
-                floorSelect.innerHTML = '<option value="">請先選擇廠區</option>';
-            }
+            saveCurrentSelection();
         }
-
+        
         // 樓層選擇變更事件
         function onFloorLevelChange() {
-            const factoryArea = document.getElementById('factoryArea').value;
-            const floorLevel = document.getElementById('floorLevel').value;
-            const macSelect = document.getElementById('macId');
-            const modelSelect = document.getElementById('deviceModel');
+            const floorLevel = getElement('floorLevel')?.value || '';
+            console.log('樓層變更:', floorLevel);
             
             // 重置下層選項
-            macSelect.innerHTML = '<option value="">載入中...</option>';
-            modelSelect.innerHTML = '<option value="">請先選擇 MAC ID</option>';
-            
-            // 更新選擇顯示
+            resetDependentSelectors(['macId', 'deviceModel']);
             updateSelectedDeviceInfo();
+            saveCurrentSelection();
             
             if (floorLevel) {
-                // 啟用 MAC ID 選擇
-                macSelect.disabled = false;
                 loadMacIds();
+            }
+        }
+        
+        // MAC ID 選擇變更事件
+        function onMacIdChange() {
+            const macId = getElement('macId')?.value || '';
+            console.log('MAC ID 變更:', macId);
+            
+            resetDependentSelectors(['deviceModel']);
+            saveCurrentSelection();
+            
+            if (macId) {
+                loadDeviceSettings(macId);
+                loadDeviceModels();
+                
+                const syncBtn = getElement('syncDeviceBtn');
+                if (syncBtn) syncBtn.disabled = false;
             } else {
-                // 禁用下層選項
-                macSelect.disabled = true;
-                modelSelect.disabled = true;
-                macSelect.innerHTML = '<option value="">請先選擇樓層</option>';
+                updateSelectedDeviceInfo();
+                const syncBtn = getElement('syncDeviceBtn');
+                if (syncBtn) syncBtn.disabled = true;
+            }
+        }
+        
+        // 設備型號選擇變更事件
+        function onDeviceModelChange() {
+            console.log('設備型號變更');
+            saveCurrentSelection();
+            updateSelectedDeviceInfo();
+        }
+        
+        // 重置相依的選擇器
+        function resetDependentSelectors(selectorIds) {
+            selectorIds.forEach(id => {
+                const select = getElement(id);
+                if (select) {
+                    select.innerHTML = '<option value="">請先選擇上層項目</option>';
+                    select.disabled = true;
+                }
+            });
+        }
+
+        // ==================== 顯示和載入輔助函數 ====================
+        
+        // 顯示載入動畫
+        function showLoading(message = '載入中...') {
+            const overlay = getElement('loadingOverlay');
+            if (overlay) {
+                const messageElement = overlay.querySelector('p');
+                if (messageElement) messageElement.textContent = message;
+                overlay.style.display = 'flex';
+            }
+        }
+        
+        // 隱藏載入動畫
+        function hideLoading() {
+            const overlay = getElement('loadingOverlay');
+            if (overlay) overlay.style.display = 'none';
+        }
+        
+        // 更新當前時間
+        function updateCurrentTime() {
+            const timeElement = getElement('current-time');
+            if (timeElement) {
+                timeElement.textContent = new Date().toLocaleString('zh-TW');
+            }
+        }
+        
+        // ==================== 本地儲存管理 ====================
+        
+        // 保存當前選擇到本地儲存
+        function saveCurrentSelection() {
+            const selection = {
+                factoryArea: getElement('factoryArea')?.value || '',
+                floorLevel: getElement('floorLevel')?.value || '',
+                macId: getElement('macId')?.value || '',
+                deviceModel: getElement('deviceModel')?.value || '',
+                timeRange: getElement('timeRange')?.value || '10',
+                savedAt: new Date().toISOString()
+            };
+            
+            try {
+                localStorage.setItem('h100_dashboard_selection', JSON.stringify(selection));
+                console.log('選擇已保存:', selection);
+            } catch (error) {
+                console.warn('無法保存選擇:', error);
+            }
+        }
+        
+        // 從本地儲存載入選擇
+        function loadSavedSelection() {
+            try {
+                const savedSelection = localStorage.getItem('h100_dashboard_selection');
+                if (!savedSelection) return false;
+                
+                const selection = JSON.parse(savedSelection);
+                console.log('載入保存的選擇:', selection);
+                
+                // 逐步恢復選擇
+                restoreSelection(selection);
+                return true;
+            } catch (error) {
+                console.warn('無法載入保存的選擇:', error);
+                return false;
+            }
+        }
+        
+        // 恢復選擇
+        function restoreSelection(selection) {
+            // 恢復時間範圍
+            if (selection.timeRange) {
+                const timeSelect = getElement('timeRange');
+                if (timeSelect) timeSelect.value = selection.timeRange;
+            }
+            
+            // TODO: 實現其他選項的恢復邏輯
+        }
+        
+        // 清除保存的選擇
+        function clearSavedSelection() {
+            try {
+                localStorage.removeItem('h100_dashboard_selection');
+                console.log('已清除保存的選擇');
+            } catch (error) {
+                console.warn('無法清除保存的選擇:', error);
             }
         }
 
-        // MAC ID 選擇變更事件
-        function onMacIdChange() {
-            const macId = document.getElementById('macId').value;
-            const modelSelect = document.getElementById('deviceModel');
-            
-            // 重置設備型號選項
-            modelSelect.innerHTML = '<option value="">載入中...</option>';
-            
-            // 更新選擇顯示
-            updateSelectedDeviceInfo();
-            
-            if (macId) {
-                // 啟用設備型號選擇
-                modelSelect.disabled = false;
-                loadDeviceModels();
-            } else {
-                // 禁用設備型號選項
-                modelSelect.disabled = true;
-                modelSelect.innerHTML = '<option value="">請先選擇 MAC ID</option>';
+        // 從本地儲存載入選擇
+        function loadSavedSelection() {
+            try {
+                const savedSelection = localStorage.getItem('h100_dashboard_selection');
+                if (savedSelection) {
+                    const selection = JSON.parse(savedSelection);
+                    console.log('從本地儲存載入選擇:', selection);
+                    
+                    // 恢復廠區選擇
+                    if (selection.factoryArea) {
+                        const factorySelect = document.getElementById('factoryArea');
+                        // 等待廠區選項載入後再設定值
+                        const checkFactory = setInterval(() => {
+                            const option = Array.from(factorySelect.options).find(opt => opt.value === selection.factoryArea);
+                            if (option) {
+                                factorySelect.value = selection.factoryArea;
+                                // 觸發廠區變更事件，這會載入樓層選項
+                                onFactoryAreaChange();
+                                clearInterval(checkFactory);
+                                
+                                // 恢復樓層選擇 - 等待樓層選項載入
+                                if (selection.floorLevel) {
+                                    setTimeout(() => {
+                                        const floorSelect = document.getElementById('floorLevel');
+                                        let floorCheckCount = 0;
+                                        const maxFloorChecks = 50; // 最多檢查5秒
+                                        
+                                        const checkFloor = setInterval(() => {
+                                            floorCheckCount++;
+                                            console.log(`檢查樓層選項載入狀態 ${floorCheckCount}/${maxFloorChecks}`);
+                                            
+                                            // 檢查是否有樓層選項（除了預設選項）
+                                            if (floorSelect.options.length > 1) {
+                                                const floorOption = Array.from(floorSelect.options).find(opt => opt.value === selection.floorLevel);
+                                                if (floorOption) {
+                                                    console.log('找到樓層選項，設定值:', selection.floorLevel);
+                                                    floorSelect.value = selection.floorLevel;
+                                                    onFloorLevelChange();
+                                                    clearInterval(checkFloor);
+                                                    
+                                                    // 恢復 MAC ID 選擇
+                                                    if (selection.macId) {
+                                                        setTimeout(() => {
+                                                            const macSelect = document.getElementById('macId');
+                                                            let macCheckCount = 0;
+                                                            const maxMacChecks = 50;
+                                                            
+                                                            const checkMac = setInterval(() => {
+                                                                macCheckCount++;
+                                                                console.log(`檢查 MAC ID 選項載入狀態 ${macCheckCount}/${maxMacChecks}`);
+                                                                
+                                                                if (macSelect.options.length > 1) {
+                                                                    const macOption = Array.from(macSelect.options).find(opt => opt.value === selection.macId);
+                                                                    if (macOption) {
+                                                                        console.log('找到 MAC ID 選項，設定值:', selection.macId);
+                                                                        macSelect.value = selection.macId;
+                                                                        onMacIdChange();
+                                                                        clearInterval(checkMac);
+                                                                        
+                                                                        // 恢復設備型號選擇
+                                                                        if (selection.deviceModel) {
+                                                                            setTimeout(() => {
+                                                                                const modelSelect = document.getElementById('deviceModel');
+                                                                                let modelCheckCount = 0;
+                                                                                const maxModelChecks = 50;
+                                                                                
+                                                                                const checkModel = setInterval(() => {
+                                                                                    modelCheckCount++;
+                                                                                    console.log(`檢查設備型號選項載入狀態 ${modelCheckCount}/${maxModelChecks}`);
+                                                                                    
+                                                                                    if (modelSelect.options.length > 1) {
+                                                                                        const modelOption = Array.from(modelSelect.options).find(opt => opt.value === selection.deviceModel);
+                                                                                        if (modelOption) {
+                                                                                            console.log('找到設備型號選項，設定值:', selection.deviceModel);
+                                                                                            modelSelect.value = selection.deviceModel;
+                                                                                            onDeviceModelChange();
+                                                                                            clearInterval(checkModel);
+                                                                                        }
+                                                                                    }
+                                                                                    
+                                                                                    // 超時停止檢查
+                                                                                    if (modelCheckCount >= maxModelChecks) {
+                                                                                        console.warn('設備型號選項載入超時');
+                                                                                        clearInterval(checkModel);
+                                                                                    }
+                                                                                }, 100);
+                                                                            }, 500);
+                                                                        }
+                                                                    }
+                                                                }
+                                                                
+                                                                // 超時停止檢查
+                                                                if (macCheckCount >= maxMacChecks) {
+                                                                    console.warn('MAC ID 選項載入超時');
+                                                                    clearInterval(checkMac);
+                                                                }
+                                                            }, 100);
+                                                        }, 500);
+                                                    }
+                                                }
+                                            }
+                                            
+                                            // 超時停止檢查
+                                            if (floorCheckCount >= maxFloorChecks) {
+                                                console.warn('樓層選項載入超時');
+                                                clearInterval(checkFloor);
+                                            }
+                                        }, 100);
+                                    }, 1000); // 增加等待時間給樓層選項載入
+                                }
+                            }
+                        }, 100);
+                        
+                        // 5 秒後停止檢查
+                        setTimeout(() => clearInterval(checkFactory), 5000);
+                    }
+                    
+                    // 恢復時間範圍選擇
+                    if (selection.timeRange) {
+                        document.getElementById('timeRange').value = selection.timeRange;
+                    }
+                    
+                    return true;
+                }
+            } catch (error) {
+                console.warn('無法從本地儲存載入選擇:', error);
+            }
+            return false;
+        }
+
+        // 清除保存的選擇
+        function clearSavedSelection() {
+            try {
+                localStorage.removeItem('h100_dashboard_selection');
+                console.log('已清除保存的選擇');
+            } catch (error) {
+                console.warn('無法清除保存的選擇:', error);
             }
         }
 
         // 更新選擇的設備資訊顯示
-        function updateSelectedDeviceInfo() {
+        function updateSelectedDeviceInfo(deviceSettings = null) {
             const factoryArea = document.getElementById('factoryArea').value;
             const floorLevel = document.getElementById('floorLevel').value;
             const macId = document.getElementById('macId').value;
@@ -1459,7 +1595,46 @@
             
             const infoDiv = document.getElementById('selectedDeviceInfo');
             
-            if (factoryArea || floorLevel || macId || deviceModel) {
+            if (deviceSettings && macId) {
+                // 如果有設備設定資料，顯示完整的動態資訊
+                const parts = [
+                    `<strong>廠區：</strong>${deviceSettings.device_name || factoryArea || '未設定'}`,
+                    `<strong>樓層：</strong>${deviceSettings.device_location || floorLevel || '未設定'}`,
+                    `<strong>MAC ID：</strong>${macId}`,
+                    `<strong>描述：</strong>${deviceSettings.device_description || '無描述'}`
+                ];
+                
+                // 顯示設備型號資訊
+                if (deviceSettings.device_model) {
+                    if (typeof deviceSettings.device_model === 'object') {
+                        const modelParts = [];
+                        for (const [channel, model] of Object.entries(deviceSettings.device_model)) {
+                            if (model && model.trim()) {
+                                modelParts.push(`頻道${channel}: ${model}`);
+                            }
+                        }
+                        if (modelParts.length > 0) {
+                            parts.push(`<strong>設備型號：</strong><br>&nbsp;&nbsp;${modelParts.join('<br>&nbsp;&nbsp;')}`);
+                        }
+                    } else if (deviceSettings.device_model.trim()) {
+                        parts.push(`<strong>設備型號：</strong>${deviceSettings.device_model}`);
+                    }
+                }
+                
+                infoDiv.innerHTML = `
+                    <div class="bg-light p-3 rounded">
+                        <h6 class="text-primary mb-2"><i class="fas fa-microchip me-2"></i>設備詳細資訊</h6>
+                        <div class="row g-2">
+                            <div class="col-12">${parts.join('</div><div class="col-12">')}</div>
+                        </div>
+                        <small class="text-muted d-block mt-2">
+                            <i class="fas fa-clock me-1"></i>
+                            最後更新: ${deviceSettings.updated_at ? new Date(deviceSettings.updated_at).toLocaleString('zh-TW') : '未知'}
+                        </small>
+                    </div>
+                `;
+            } else if (factoryArea || floorLevel || macId || deviceModel) {
+                // 舊版本的基本顯示
                 const parts = [];
                 if (factoryArea) parts.push(`廠區：${factoryArea}`);
                 if (floorLevel) parts.push(`樓層：${floorLevel}`);
@@ -1468,29 +1643,103 @@
                 
                 infoDiv.textContent = parts.join(' > ');
             } else {
-                infoDiv.textContent = '尚未選擇設備';
+                infoDiv.innerHTML = '<span class="text-muted">尚未選擇設備</span>';
+            }
+        }
+
+        // 載入設備設定
+        async function loadDeviceSettings(macId) {
+            if (!macId) {
+                currentDeviceSettings = null;
+                updateSelectedDeviceInfo();
+                return;
+            }
+
+            try {
+                // 從設備設定 API 獲取詳細資訊
+                const response = await fetch(`/api/device-settings?mac_id=${macId}`);
+                const result = await response.json();
+                
+                if (result.success && result.settings) {
+                    console.log('載入設備設定成功:', result.settings);
+                    
+                    // 保存到全域變數
+                    currentDeviceSettings = result.settings;
+                    
+                    // 更新顯示的設備資訊
+                    updateSelectedDeviceInfo(result.settings);
+                    
+                    // 如果設定中有廠區和樓層資訊，自動更新選擇框
+                    if (result.settings.device_name) {
+                        const factorySelect = document.getElementById('factoryArea');
+                        // 檢查該廠區是否在選項中
+                        const option = Array.from(factorySelect.options).find(opt => opt.value === result.settings.device_name);
+                        if (option) {
+                            factorySelect.value = result.settings.device_name;
+                        }
+                    }
+                    
+                    if (result.settings.device_location) {
+                        const floorSelect = document.getElementById('floorLevel');
+                        // 如果樓層選擇框是啟用的，嘗試設定樓層
+                        if (!floorSelect.disabled) {
+                            const option = Array.from(floorSelect.options).find(opt => opt.value === result.settings.device_location);
+                            if (option) {
+                                floorSelect.value = result.settings.device_location;
+                            }
+                        }
+                    }
+                    
+                } else {
+                    console.warn('無法獲取設備設定:', result.message);
+                    currentDeviceSettings = null;
+                    updateSelectedDeviceInfo();
+                }
+                
+            } catch (error) {
+                console.error('載入設備設定失敗:', error);
+                currentDeviceSettings = null;
+                updateSelectedDeviceInfo();
             }
         }
 
         // 載入廠區列表
-        async function loadFactoryAreas() {
+        async function loadFactoryAreas(forceRefresh = false) {
             try {
-                // 先嘗試從API載入
-                const response = await fetch('/api/selection-options');
+                let url = '/api/database/factory-areas';
+                
+                // 如果強制刷新，添加時間戳參數避免快取
+                if (forceRefresh) {
+                    const timestamp = new Date().getTime();
+                    url += `?_t=${timestamp}`;
+                    console.log('強制刷新廠區，使用URL:', url);
+                }
+                
+                // 使用正確的廠區 API
+                const response = await fetch(url, {
+                    cache: forceRefresh ? 'no-cache' : 'default',
+                    headers: forceRefresh ? {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    } : {}
+                });
                 const result = await response.json();
                 
                 const select = document.getElementById('factoryArea');
                 select.innerHTML = '<option value="">請選擇廠區</option>';
                 
-                if (result.success && result.data && result.data.factory_areas) {
-                    result.data.factory_areas.forEach(area => {
+                console.log('廠區 API 回應結果:', result);
+                
+                if (result.success && result.data && result.data.length > 0) {
+                    result.data.forEach(area => {
                         const option = document.createElement('option');
                         option.value = area;
                         option.textContent = area;
                         select.appendChild(option);
                     });
+                    console.log('✅ 成功載入廠區列表:', result.data);
                 } else {
-                    // 如果API失敗，使用測試資料
+                    console.warn('⚠️ API 未返回廠區資料，使用測試資料。result:', result);
                     addTestFactoryAreas();
                 }
             } catch (error) {
@@ -1499,12 +1748,15 @@
             }
         }
 
-        // 添加測試廠區資料
+        // 添加測試廠區資料 (僅作為後備) - 修正測試資料
         function addTestFactoryAreas() {
             const select = document.getElementById('factoryArea');
-            const testAreas = ['包裝區'];
+            console.warn('使用後備測試資料');
             
-            testAreas.forEach(area => {
+            // 從資料庫查詢已知的廠區作為後備，修正大小寫
+            const knownAreas = ['測試廠區', 'DB測試設備', '4F'];  // 修正 4f -> 4F
+            
+            knownAreas.forEach(area => {
                 const option = document.createElement('option');
                 option.value = area;
                 option.textContent = area;
@@ -1523,30 +1775,87 @@
 
         // 剩餘的圖表相關函數保留
 
-        // 載入樓層列表
-        async function loadFloorLevels(factoryArea = '') {
+        // 載入樓層列表 (修改為獨立載入，不依賴廠區)
+        async function loadFloorLevels(factoryArea = '', forceRefresh = false) {
+            console.log('開始載入樓層列表，廠區:', factoryArea, '強制刷新:', forceRefresh);
+            
             try {
-                const url = factoryArea ? 
-                    `/api/database/floor-levels?factory_area=${encodeURIComponent(factoryArea)}` :
-                    '/api/database/floor-levels';
+                // 修改為不依賴廠區，直接載入所有樓層
+                let url = '/api/database/floor-levels';
                 
-                const response = await fetch(url);
+                // 如果強制刷新，添加時間戳參數避免快取
+                if (forceRefresh) {
+                    const timestamp = new Date().getTime();
+                    url += `?_t=${timestamp}`;
+                    console.log('強制刷新，使用URL:', url);
+                }
+                
+                const response = await fetch(url, {
+                    cache: forceRefresh ? 'no-cache' : 'default',
+                    headers: forceRefresh ? {
+                        'Cache-Control': 'no-cache',
+                        'Pragma': 'no-cache'
+                    } : {}
+                });
                 const result = await response.json();
                 
                 const select = document.getElementById('floorLevel');
                 select.innerHTML = '<option value="">請選擇樓層</option>';
                 
-                if (result.success && result.data) {
+                console.log('API 回應結果:', result);
+                
+                if (result.success && result.data && result.data.length > 0) {
                     result.data.forEach(level => {
                         const option = document.createElement('option');
                         option.value = level;
                         option.textContent = level;
                         select.appendChild(option);
                     });
+                    console.log('✅ 成功載入樓層列表:', result.data);
+                } else {
+                    console.warn('⚠️ API 未返回樓層資料，使用測試資料。result:', result);
+                    addTestFloorLevels(factoryArea);
                 }
+                
+                // 觸發樓層載入完成事件
+                console.log('樓層選項載入完成，當前選項數量:', select.options.length);
+                
             } catch (error) {
-                console.error('載入樓層列表失敗:', error);
+                console.error('❌ 載入樓層列表失敗，使用測試資料:', error);
+                addTestFloorLevels(factoryArea);
             }
+        }
+
+        // 添加測試樓層資料 (僅作為後備)
+        function addTestFloorLevels(factoryArea) {
+            const select = document.getElementById('floorLevel');
+            console.warn('使用後備樓層測試資料');
+            
+            // 根據廠區提供測試樓層資料
+            let testFloors = [];
+            
+            switch(factoryArea) {
+                case '測試廠區':
+                    testFloors = ['1F', '2F', '3F'];
+                    break;
+                case 'DB測試設備':
+                    testFloors = ['B1', '1F', '2F'];
+                    break;
+                case '4f':
+                    testFloors = ['4F'];
+                    break;
+                default:
+                    testFloors = ['1F', '2F', '3F', '4F'];
+            }
+            
+            testFloors.forEach(floor => {
+                const option = document.createElement('option');
+                option.value = floor;
+                option.textContent = floor;
+                select.appendChild(option);
+            });
+            
+            console.log(`為廠區 "${factoryArea}" 添加測試樓層:`, testFloors);
         }
 
         // 載入MAC ID列表
@@ -1571,13 +1880,16 @@
                 const select = document.getElementById('macId');
                 select.innerHTML = '<option value="">請選擇 MAC ID</option>';
                 
-                if (result.success && result.data) {
+                if (result.success && result.data && result.data.length > 0) {
                     result.data.forEach(macId => {
                         const option = document.createElement('option');
                         option.value = macId;
                         option.textContent = macId;
                         select.appendChild(option);
                     });
+                    console.log('成功載入 MAC ID 列表:', result.data);
+                } else {
+                    console.warn('API 未返回 MAC ID 資料');
                 }
             } catch (error) {
                 console.error('載入 MAC ID 列表失敗:', error);
@@ -1608,20 +1920,19 @@
                 const select = document.getElementById('deviceModel');
                 select.innerHTML = '<option value="">請選擇設備型號</option>';
                 
-                if (result.success && result.data) {
+                if (result.success && result.data && result.data.length > 0) {
                     result.data.forEach(model => {
                         const option = document.createElement('option');
                         option.value = model;
                         option.textContent = model;
                         select.appendChild(option);
                     });
+                    console.log('成功載入設備型號列表:', result.data);
                 } else {
-                    // 如果API失敗，使用測試資料
-                    addTestDeviceModels(macId);
+                    console.warn('API 未返回設備型號資料');
                 }
             } catch (error) {
-                console.error('載入設備型號列表失敗，使用測試資料:', error);
-                addTestDeviceModels(macId);
+                console.error('載入設備型號列表失敗:', error);
             }
         }
 
@@ -1648,6 +1959,9 @@
 
         // 重設篩選條件
         function resetFilters() {
+            // 清除本地儲存的選擇
+            clearSavedSelection();
+            
             document.getElementById('factoryArea').value = '';
             document.getElementById('floorLevel').value = '';
             document.getElementById('macId').value = '';
@@ -1698,9 +2012,15 @@
                 params.append('device_model', deviceModel);
                 params.append('time_range', timeRange);
                 
-                // 更新選中設備資訊
-                document.getElementById('selectedDeviceInfo').textContent = 
-                    `${factoryArea} > ${floorLevel} > ${macId} > ${deviceModel}`;
+                // 更新選中設備資訊 - 使用動態設備設定
+                if (currentDeviceSettings) {
+                    // 使用動態獲取的設備設定資訊
+                    updateSelectedDeviceInfo(currentDeviceSettings);
+                } else {
+                    // 如果沒有設備設定，顯示基本資訊
+                    document.getElementById('selectedDeviceInfo').textContent = 
+                        `${factoryArea} > ${floorLevel} > ${macId} > ${deviceModel}`;
+                }
                 
                 // 載入電流圖表數據
                 await loadCurrentChartData(params);
@@ -2068,187 +2388,6 @@
                     
                     loadLatestCurrentData(params);
                 }
-            }
-        }
-
-        // 載入廠區列表
-        async function loadFactoryAreas() {
-            try {
-                const response = await fetch('/api/database/factory-areas');
-                const result = await response.json();
-                
-                const select = document.getElementById('factoryArea');
-                select.innerHTML = '<option value="">請選擇廠區</option>';
-                
-                if (result.success && result.data) {
-                    result.data.forEach(area => {
-                        const option = document.createElement('option');
-                        option.value = area;
-                        option.textContent = area;
-                        select.appendChild(option);
-                    });
-                }
-            } catch (error) {
-                console.error('載入廠區列表失敗:', error);
-            }
-        }
-
-        // 載入樓層列表
-        async function loadFloorLevels(factoryArea = '') {
-            try {
-                const url = factoryArea ? 
-                    `/api/selection-options?factory_area=${encodeURIComponent(factoryArea)}` :
-                    '/api/selection-options';
-                
-                const response = await fetch(url);
-                const result = await response.json();
-                
-                const select = document.getElementById('floorLevel');
-                select.innerHTML = '<option value="">請選擇樓層</option>';
-                
-                if (result.success && result.data && result.data.floor_levels) {
-                    result.data.floor_levels.forEach(floor => {
-                        const option = document.createElement('option');
-                        option.value = floor;
-                        option.textContent = floor;
-                        select.appendChild(option);
-                    });
-                } else {
-                    // 如果API失敗，使用測試資料
-                    addTestFloorLevels(factoryArea);
-                }
-            } catch (error) {
-                console.error('載入樓層列表失敗，使用測試資料:', error);
-                addTestFloorLevels(factoryArea);
-            }
-        }
-
-        // 添加測試樓層資料
-        function addTestFloorLevels(factoryArea) {
-            const select = document.getElementById('floorLevel');
-            let testFloors = [];
-            
-            switch(factoryArea) {
-                case '生產線A-1':
-                    testFloors = ['1F', '2F', '3F'];
-                    break;
-                case '生產線A-2':
-                    testFloors = ['1F', '2F'];
-                    break;
-                case '生產線B-1':
-                    testFloors = ['1F', '3F', '4F'];
-                    break;
-                case '品質檢測區':
-                    testFloors = ['1F', '2F'];
-                    break;
-                case '包裝區':
-                    testFloors = ['1F'];
-                    break;
-                default:
-                    testFloors = ['1F', '2F', '3F', '4F'];
-            }
-            
-            testFloors.forEach(floor => {
-                const option = document.createElement('option');
-                option.value = floor;
-                option.textContent = floor;
-                select.appendChild(option);
-            });
-        }
-
-        // 載入 MAC ID 列表
-        async function loadMacIds() {
-            try {
-                const factoryArea = document.getElementById('factoryArea').value;
-                const floorLevel = document.getElementById('floorLevel').value;
-                
-                if (!factoryArea || !floorLevel) {
-                    return;
-                }
-
-                const params = new URLSearchParams();
-                params.append('factory_area', factoryArea);
-                params.append('floor_level', floorLevel);
-                
-                const response = await fetch(`/api/selection-options?${params.toString()}`);
-                const result = await response.json();
-                
-                const select = document.getElementById('macId');
-                select.innerHTML = '<option value="">請選擇 MAC ID</option>';
-                
-                if (result.success && result.data && result.data.mac_ids) {
-                    result.data.mac_ids.forEach(macId => {
-                        const option = document.createElement('option');
-                        option.value = macId;
-                        option.textContent = macId;
-                        select.appendChild(option);
-                    });
-                } else {
-                    // 如果API失敗，使用測試資料
-                    addTestMacIds(factoryArea, floorLevel);
-                }
-            } catch (error) {
-                console.error('載入 MAC ID 列表失敗，使用測試資料:', error);
-                addTestMacIds(factoryArea, floorLevel);
-            }
-        }
-
-        // 添加測試MAC ID資料
-        function addTestMacIds(factoryArea, floorLevel) {
-            const select = document.getElementById('macId');
-            const testMacIds = [
-                'AA:BB:CC:DD:EE:01',
-                'AA:BB:CC:DD:EE:02', 
-                'AA:BB:CC:DD:EE:03',
-                'AA:BB:CC:DD:EE:04',
-                'AA:BB:CC:DD:EE:05'
-            ];
-            
-            // 根據廠區和樓層組合選擇不同的MAC ID
-            const selectedMacIds = testMacIds.slice(0, Math.floor(Math.random() * 3) + 2); // 隨機2-4個
-            
-            selectedMacIds.forEach(macId => {
-                const option = document.createElement('option');
-                option.value = macId;
-                option.textContent = macId;
-                select.appendChild(option);
-            });
-        }
-
-        // 載入設備型號列表
-        async function loadDeviceModels() {
-            try {
-                const factoryArea = document.getElementById('factoryArea').value;
-                const floorLevel = document.getElementById('floorLevel').value;
-                const macId = document.getElementById('macId').value;
-                
-                if (!factoryArea || !floorLevel || !macId) {
-                    const select = document.getElementById('deviceModel');
-                    select.innerHTML = '<option value="">請先選擇廠區、樓層和 MAC ID</option>';
-                    return;
-                }
-                
-                const params = new URLSearchParams();
-                params.append('factory_area', factoryArea);
-                params.append('floor_level', floorLevel);
-                params.append('mac_id', macId);
-                
-                const response = await fetch(`/api/database/device-models?${params.toString()}`);
-                const result = await response.json();
-                
-                const select = document.getElementById('deviceModel');
-                select.innerHTML = '<option value="">請選擇設備型號</option>';
-                
-                if (result.success && result.data) {
-                    result.data.forEach(model => {
-                        const option = document.createElement('option');
-                        option.value = model;
-                        option.textContent = model;
-                        select.appendChild(option);
-                    });
-                }
-            } catch (error) {
-                console.error('載入設備型號列表失敗:', error);
             }
         }
 
@@ -2623,6 +2762,12 @@
 
         // 清除選擇
         function clearSelection() {
+            // 清除全域變數
+            currentDeviceSettings = null;
+            
+            // 清除本地儲存的選擇
+            clearSavedSelection();
+            
             // 重置所有選擇器
             document.getElementById('factoryArea').value = '';
             document.getElementById('floorLevel').value = '';
@@ -2633,6 +2778,7 @@
             const floorSelect = document.getElementById('floorLevel');
             const macSelect = document.getElementById('macId');
             const modelSelect = document.getElementById('deviceModel');
+            const syncBtn = document.getElementById('syncDeviceBtn');
             
             floorSelect.innerHTML = '<option value="">請先選擇廠區</option>';
             floorSelect.disabled = true;
@@ -2643,6 +2789,9 @@
             modelSelect.innerHTML = '<option value="">請先選擇 MAC ID</option>';
             modelSelect.disabled = true;
             
+            // 禁用同步按鈕
+            syncBtn.disabled = true;
+            
             // 隱藏圖表區域
             document.getElementById('currentChartsSection').style.display = 'none';
             
@@ -2652,8 +2801,13 @@
 
         // 重新整理選項
         function refreshSelection() {
-            // 重新載入廠區選項
-            loadFactoryAreas();
+            console.log('開始重新整理所有選項...');
+            
+            // 取得當前選擇的廠區（如果有的話）
+            const currentFactoryArea = document.getElementById('factoryArea').value;
+            
+            // 重新載入廠區選項 (強制刷新)
+            loadFactoryAreas(true);
             
             // 重置其他選項
             document.getElementById('floorLevel').innerHTML = '<option value="">請先選擇廠區</option>';
@@ -2665,17 +2819,93 @@
             document.getElementById('macId').disabled = true;
             document.getElementById('deviceModel').disabled = true;
             
+            // 強制重新載入樓層資料（不依賴廠區）
+            setTimeout(() => {
+                console.log('重新載入樓層資料...');
+                loadFloorLevels('', true); // 強制刷新，載入所有樓層
+                
+                // 如果之前有選擇廠區，恢復選擇
+                if (currentFactoryArea) {
+                    document.getElementById('factoryArea').value = currentFactoryArea;
+                }
+            }, 500);
+            
             // 更新選擇顯示
             updateSelectedDeviceInfo();
             
             // 顯示提示
-            alert('選項已重新整理');
+            alert('選項已重新整理，樓層資料已強制刷新');
         }
 
         // 生成圖表
         function generateCharts() {
             // 呼叫電流圖表生成函數
             generateCurrentCharts();
+        }
+
+        // 同步設備設定
+        async function syncDeviceSettings() {
+            const macId = document.getElementById('macId').value;
+            
+            if (!macId) {
+                alert('請先選擇 MAC ID');
+                return;
+            }
+
+            const syncBtn = document.getElementById('syncDeviceBtn');
+            const originalText = syncBtn.innerHTML;
+            
+            try {
+                // 顯示載入狀態
+                syncBtn.disabled = true;
+                syncBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>同步中...';
+                
+                // 1. 先修正資料一致性
+                const fixResponse = await fetch(`/api/device-fix/${macId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const fixResult = await fixResponse.json();
+                
+                if (!fixResult.success) {
+                    throw new Error(`修正資料失敗: ${fixResult.message}`);
+                }
+                
+                // 2. 再同步設定檔案
+                const syncResponse = await fetch(`/api/device-sync/${macId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const syncResult = await syncResponse.json();
+                
+                if (syncResult.success) {
+                    alert(`設備 ${macId} 設定同步成功！\n\n請重新選擇該設備以查看更新後的資訊。`);
+                    
+                    // 重新載入設備設定
+                    if (macId) {
+                        await loadDeviceSettings(macId);
+                    }
+                    
+                    // 重新整理選項
+                    refreshSelection();
+                } else {
+                    throw new Error(syncResult.message);
+                }
+                
+            } catch (error) {
+                console.error('同步設備設定失敗:', error);
+                alert(`同步設備設定失敗: ${error.message}`);
+            } finally {
+                // 恢復按鈕狀態
+                syncBtn.disabled = false;
+                syncBtn.innerHTML = originalText;
+            }
         }
     </script>
 </body>

@@ -1,17 +1,63 @@
 """
 Dashboard API 服務
 獨立的 Dashboard 和設備設定管理 API 服務
+
+優化重點：
+- 模組化架構
+- 改善錯誤處理  
+- 優化性能
+- 統一配置管理
 """
 
-# === 清理可能有問題的模組 ===
 import sys
 import os
+from pathlib import Path
 
-# 清理可能導致循環導入的模組
-problematic_modules = ['charset_normalizer', 'urllib3', 'certifi']
-for module in problematic_modules:
-    if module in sys.modules:
-        del sys.modules[module]
+# 添加專案根目錄到 Python 路徑
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+
+# === 配置和常數 ===
+class DashboardConfig:
+    """Dashboard 配置管理"""
+    
+    # 基本配置
+    SECRET_KEY = 'dashboard_secret_key_2025'
+    HOST = '0.0.0.0'
+    PORT = 5001
+    DEBUG = os.getenv('DEBUG', 'True').lower() == 'true'
+    
+    # 樹莓派配置
+    RASPBERRY_PI_HOST = os.getenv('RASPBERRY_PI_HOST', '192.168.113.239')
+    RASPBERRY_PI_PORT = int(os.getenv('RASPBERRY_PI_PORT', '5000'))
+    
+    # 模式配置
+    STANDALONE_MODE = os.getenv('DASHBOARD_STANDALONE_MODE', 'True').lower() == 'true'
+    
+    # 性能配置
+    API_CACHE_TTL = 60  # API快取TTL (秒)
+    DATA_CACHE_TTL = 300  # 數據快取TTL (秒)
+    MAX_CACHE_SIZE = 200
+    
+    # 請求配置
+    REQUEST_TIMEOUT = 10
+    MAX_RETRIES = 3
+
+config = DashboardConfig()
+
+# === 清理問題模組 ===
+def cleanup_problematic_modules():
+    """清理可能導致問題的模組"""
+    problematic_modules = [
+        'charset_normalizer', 'urllib3', 'certifi', 
+        'requests', 'idna'
+    ]
+    
+    for module in problematic_modules:
+        if module in sys.modules:
+            del sys.modules[module]
+
+cleanup_problematic_modules()
 
 # === 標準庫導入 ===
 import json
@@ -34,202 +80,342 @@ import functools
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
+from typing import Optional, Dict, Any, List, Tuple
 
 # === Flask 相關導入 ===
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, make_response, Response, session
 
-# === 專案模組導入 ===
-from config_manager import ConfigManager
-# 注意：dashboard.py 運行在獨立主機上，不直接導入 uart_integrated
-from network_utils import network_checker, create_offline_mode_manager
-from device_settings import DeviceSettingsManager
-from multi_device_settings import MultiDeviceSettingsManager
+# === 日誌設定 ===
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] [Dashboard] %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('dashboard.log', encoding='utf-8')
+    ]
+)
 
-# === 遠程數據獲取配置 ===
-# 配置樹梅派的 IP 地址和端口
-RASPBERRY_PI_HOST = os.getenv('RASPBERRY_PI_HOST', '192.168.113.239')  # 請修改為實際的樹梅派 IP
-RASPBERRY_PI_PORT = os.getenv('RASPBERRY_PI_PORT', '5000')  # app_integrated.py 的端口
+logger = logging.getLogger(__name__)
 
-# Dashboard 模式配置：True = 獨立主機模式，False = 與 UART 在同一主機
-DASHBOARD_STANDALONE_MODE = os.getenv('DASHBOARD_STANDALONE_MODE', 'True').lower() == 'true'
-
-# === 安全導入 requests ===
-# 嘗試導入 requests 用於遠程數據獲取
-REQUESTS_AVAILABLE = False
-requests = None
-
-def safe_import_requests():
-    """安全地導入 requests 模組"""
-    global requests, REQUESTS_AVAILABLE
+# === 安全導入管理器 ===
+class SafeImportManager:
+    """安全導入管理器，處理可選依賴的導入"""
     
-    if REQUESTS_AVAILABLE:
-        return True
-    
-    try:
-        # 清理可能有問題的相關模組
-        cleanup_modules = ['requests', 'urllib3', 'charset_normalizer', 'certifi', 'idna']
-        for module in cleanup_modules:
-            if module in sys.modules:
-                del sys.modules[module]
-        
-        # 重新導入 requests
-        import requests
-        REQUESTS_AVAILABLE = True
-        logging.info("requests 模組導入成功")
-        return True
-        
-    except ImportError as e:
-        logging.warning(f"requests 模組未安裝: {e}")
-        REQUESTS_AVAILABLE = False
-        return False
-    except Exception as e:
-        logging.error(f"導入 requests 時發生錯誤: {e}")
-        REQUESTS_AVAILABLE = False
-        return False
-
-# 嘗試導入 requests
-safe_import_requests()
-
-def get_data_from_raspberry_pi(endpoint, timeout=10):
-    """從樹梅派獲取數據的通用函數"""
-    if not REQUESTS_AVAILABLE or not DASHBOARD_STANDALONE_MODE:
-        return None
-    
-    try:
-        url = f"http://{RASPBERRY_PI_HOST}:{RASPBERRY_PI_PORT}{endpoint}"
-        response = requests.get(url, timeout=timeout)
-        if response.status_code == 200:
-            return response.json()
-        else:
-            logging.warning(f"從樹梅派獲取數據失敗: {response.status_code}")
-            return None
-    except Exception as e:
-        logging.warning(f"無法連接到樹梅派 {RASPBERRY_PI_HOST}:{RASPBERRY_PI_PORT}: {e}")
-        return None
-
-# 模擬的 uart_reader 和 protocol_manager (僅在獨立模式下使用)
-class MockUartReader:
-    """模擬的 UART 讀取器，用於獨立模式"""
     def __init__(self):
-        self.is_running = False
+        self.available_modules = {}
+        self.failed_imports = {}
     
-    def test_uart_connection(self):
-        return False, "Dashboard 運行在獨立模式，UART 功能不可用"
+    def safe_import(self, module_name: str, fallback=None, required: bool = False):
+        """安全導入模組"""
+        if module_name in self.available_modules:
+            return self.available_modules[module_name]
+        
+        if module_name in self.failed_imports:
+            if required:
+                raise ImportError(f"Required module '{module_name}' is not available")
+            return fallback
+        
+        try:
+            # 清理可能有問題的模組
+            if module_name in sys.modules:
+                del sys.modules[module_name]
+            
+            module = __import__(module_name)
+            self.available_modules[module_name] = module
+            logger.info(f"Successfully imported {module_name}")
+            return module
+            
+        except ImportError as e:
+            self.failed_imports[module_name] = str(e)
+            logger.warning(f"Failed to import {module_name}: {e}")
+            
+            if required:
+                raise ImportError(f"Required module '{module_name}' is not available: {e}")
+            
+            return fallback
     
-    def list_available_ports(self):
-        return []
-    
-    def start_reading(self):
-        return False
-    
-    def stop_reading(self):
-        pass
-    
-    def clear_data(self):
-        pass
-    
-    def get_uart_config(self):
-        return "N/A", 9600, 8, 1, "N", 1
-    
-    def get_latest_data(self):
-        return []
+    def is_available(self, module_name: str) -> bool:
+        """檢查模組是否可用"""
+        return module_name in self.available_modules
 
-class MockProtocolManager:
-    """模擬的協定管理器，用於獨立模式"""
-    def __init__(self):
-        self.active = None
-    
-    def start(self, protocol):
-        pass
+# 創建導入管理器實例
+import_manager = SafeImportManager()
 
-# 根據模式設置 uart_reader 和 protocol_manager
-if DASHBOARD_STANDALONE_MODE:
-    uart_reader = MockUartReader()
-    protocol_manager = MockProtocolManager()
-    logging.info("Dashboard 運行在獨立主機模式")
-else:
-    # 如果不是獨立模式，嘗試導入真實的模組
-    try:
-        from uart_integrated import uart_reader, protocol_manager
-        logging.info("Dashboard 運行在本地模式，已載入 UART 模組")
-    except ImportError:
-        uart_reader = MockUartReader()
-        protocol_manager = MockProtocolManager()
-        logging.warning("無法載入 UART 模組，使用模擬模式")
+# === 導入專案模組 ===
+try:
+    from config_manager import ConfigManager
+    from network_utils import network_checker, create_offline_mode_manager
+    from device_settings import DeviceSettingsManager
+    from multi_device_settings import MultiDeviceSettingsManager
+    logger.info("核心模組導入成功")
+except ImportError as e:
+    logger.error(f"核心模組導入失敗: {e}")
+    raise
+
+# === 可選模組導入 ===
+requests = import_manager.safe_import('requests')
+psutil = import_manager.safe_import('psutil')
+
+# FTP 相關模組
+pyftpdlib_modules = {}
+try:
+    from pyftpdlib.authorizers import DummyAuthorizer
+    from pyftpdlib.handlers import FTPHandler  
+    from pyftpdlib.servers import FTPServer
+    pyftpdlib_modules = {
+        'DummyAuthorizer': DummyAuthorizer,
+        'FTPHandler': FTPHandler,
+        'FTPServer': FTPServer
+    }
+    logger.info("FTP 模組載入成功")
+except ImportError:
+    logger.warning("FTP 模組未安裝，相關功能將受限")
 
 # === 資料庫模組導入 ===
 try:
     from database_manager import db_manager
     DATABASE_AVAILABLE = True
-    print("Dashboard: 資料庫管理器載入成功")
+    logger.info("資料庫管理器載入成功")
 except ImportError as e:
-    print(f"Dashboard: 資料庫管理器載入失敗: {e}")
+    logger.error(f"資料庫管理器載入失敗: {e}")
     DATABASE_AVAILABLE = False
     db_manager = None
 
-# === 修復 charset_normalizer 循環導入問題 ===
-# 在文件開頭已經導入了 requests，這裡不需要重複導入
-# 如果 requests 在開頭導入失敗，REQUESTS_AVAILABLE 變數已經設置為 False
+# === 遠程連接管理器 ===
+class RaspberryPiConnector:
+    """樹莓派連接管理器"""
+    
+    def __init__(self):
+        self.host = config.RASPBERRY_PI_HOST
+        self.port = config.RASPBERRY_PI_PORT
+        self.timeout = config.REQUEST_TIMEOUT
+        self.max_retries = config.MAX_RETRIES
+        self.available = import_manager.is_available('requests')
+    
+    def get_data(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Dict]:
+        """從樹莓派獲取數據"""
+        if not self.available or not config.STANDALONE_MODE:
+            return None
+        
+        url = f"http://{self.host}:{self.port}{endpoint}"
+        
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.get(
+                    url, 
+                    params=params,
+                    timeout=self.timeout
+                )
+                
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    logger.warning(f"API請求失敗 {url}: {response.status_code}")
+                    
+            except Exception as e:
+                logger.warning(f"連接樹莓派失敗 (嘗試 {attempt + 1}/{self.max_retries}): {e}")
+                
+                if attempt < self.max_retries - 1:
+                    time.sleep(1)  # 重試前等待
+        
+        return None
+    
+    def post_data(self, endpoint: str, data: Optional[Dict] = None) -> Optional[Dict]:
+        """向樹莓派發送數據"""
+        if not self.available or not config.STANDALONE_MODE:
+            return None
+        
+        url = f"http://{self.host}:{self.port}{endpoint}"
+        
+        try:
+            response = requests.post(
+                url,
+                json=data,
+                timeout=self.timeout
+            )
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"POST請求失敗 {url}: {response.status_code}")
+                
+        except Exception as e:
+            logger.warning(f"POST請求錯誤: {e}")
+        
+        return None
 
-# 為了向後兼容，設置小寫變數名稱
+# 創建樹莓派連接器實例
+raspberry_pi = RaspberryPiConnector()
+
+# === 向後兼容的變數和函數 ===
+DASHBOARD_STANDALONE_MODE = config.STANDALONE_MODE
+REQUESTS_AVAILABLE = import_manager.is_available('requests')
 requests_available = REQUESTS_AVAILABLE
 
-# === 可選模組導入 ===
-try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-    print("psutil 未安裝，系統監控功能將受限，可以執行 'pip install psutil' 來安裝")
+def get_data_from_raspberry_pi(endpoint: str, timeout: int = 10) -> Optional[Dict]:
+    """向後兼容的函數"""
+    return raspberry_pi.get_data(endpoint)
 
-try:
-    from pyftpdlib.authorizers import DummyAuthorizer
-    from pyftpdlib.handlers import FTPHandler
-    from pyftpdlib.servers import FTPServer
-    PYFTPDLIB_AVAILABLE = True
-except ImportError:
-    PYFTPDLIB_AVAILABLE = False
-    print("pyftpdlib 未安裝，FTP 功能將受限")
+# === UART 模擬器 ===
+class MockUartReader:
+    """模擬的 UART 讀取器，用於獨立模式"""
+    
+    def __init__(self):
+        self.is_running = False
+        self._data = []
+    
+    def test_uart_connection(self) -> Tuple[bool, str]:
+        return False, "Dashboard 運行在獨立模式，UART 功能不可用"
+    
+    def list_available_ports(self) -> List[str]:
+        return []
+    
+    def start_reading(self) -> bool:
+        self.is_running = True
+        return False
+    
+    def stop_reading(self) -> None:
+        self.is_running = False
+    
+    def clear_data(self) -> None:
+        self._data.clear()
+    
+    def get_uart_config(self) -> Tuple[str, int, int, int, str, int]:
+        return "N/A", 9600, 8, 1, "N", 1
+    
+    def get_latest_data(self) -> List[Dict]:
+        return self._data.copy()
 
-# === 快取機制 ===
+class MockProtocolManager:
+    """模擬的協定管理器，用於獨立模式"""
+    
+    def __init__(self):
+        self.active = None
+    
+    def start(self, protocol: str) -> None:
+        self.active = protocol
 
-class SimpleCache:
-    """簡單的記憶體快取實現"""
-    def __init__(self, max_size=100, ttl=300):  # 預設5分鐘TTL
-        self.cache = {}
-        self.timestamps = {}
+# === UART 管理器設定 ===
+class UartManager:
+    """UART 管理器，處理真實和模擬的 UART 操作"""
+    
+    def __init__(self):
+        self.reader = None
+        self.protocol_manager = None
+        self._initialize()
+    
+    def _initialize(self):
+        """初始化 UART 組件"""
+        if config.STANDALONE_MODE:
+            self.reader = MockUartReader()
+            self.protocol_manager = MockProtocolManager()
+            logger.info("UART 運行在模擬模式")
+        else:
+            try:
+                from uart_integrated import uart_reader, protocol_manager
+                self.reader = uart_reader
+                self.protocol_manager = protocol_manager
+                logger.info("UART 運行在本地模式")
+            except ImportError:
+                self.reader = MockUartReader()
+                self.protocol_manager = MockProtocolManager()
+                logger.warning("無法載入 UART 模組，使用模擬模式")
+    
+    def get_reader(self):
+        return self.reader
+    
+    def get_protocol_manager(self):
+        return self.protocol_manager
+
+# 創建 UART 管理器實例
+uart_manager = UartManager()
+uart_reader = uart_manager.get_reader()
+protocol_manager = uart_manager.get_protocol_manager()
+
+# === 高效能快取系統 ===
+class AdvancedCache:
+    """進階快取系統，支援 TTL 和 LRU"""
+    
+    def __init__(self, max_size: int = 100, ttl: int = 300):
+        self._cache = {}
+        self._timestamps = {}
+        self._access_order = {}
+        self._access_counter = 0
         self.max_size = max_size
         self.ttl = ttl
+        self._lock = threading.RLock()
     
-    def get(self, key):
-        if key not in self.cache:
-            return None
-        
-        # 檢查是否過期
-        if time.time() - self.timestamps[key] > self.ttl:
-            del self.cache[key]
-            del self.timestamps[key]
-            return None
-        
-        return self.cache[key]
+    def get(self, key: str) -> Optional[Any]:
+        """獲取快取項目"""
+        with self._lock:
+            if key not in self._cache:
+                return None
+            
+            # 檢查是否過期
+            if time.time() - self._timestamps[key] > self.ttl:
+                self._remove_key(key)
+                return None
+            
+            # 更新訪問順序
+            self._access_counter += 1
+            self._access_order[key] = self._access_counter
+            
+            return self._cache[key]
     
-    def set(self, key, value):
-        # 如果快取滿了，移除最舊的項目
-        if len(self.cache) >= self.max_size:
-            oldest_key = min(self.timestamps.keys(), key=lambda k: self.timestamps[k])
-            del self.cache[oldest_key]
-            del self.timestamps[oldest_key]
-        
-        self.cache[key] = value
-        self.timestamps[key] = time.time()
+    def set(self, key: str, value: Any) -> None:
+        """設置快取項目"""
+        with self._lock:
+            # 如果快取滿了，移除最少使用的項目
+            if len(self._cache) >= self.max_size and key not in self._cache:
+                self._evict_lru()
+            
+            self._cache[key] = value
+            self._timestamps[key] = time.time()
+            self._access_counter += 1
+            self._access_order[key] = self._access_counter
     
-    def clear(self):
-        self.cache.clear()
-        self.timestamps.clear()
+    def _remove_key(self, key: str) -> None:
+        """移除指定鍵"""
+        self._cache.pop(key, None)
+        self._timestamps.pop(key, None)
+        self._access_order.pop(key, None)
+    
+    def _evict_lru(self) -> None:
+        """移除最少使用的項目"""
+        if not self._access_order:
+            return
+        
+        lru_key = min(self._access_order.keys(), 
+                     key=lambda k: self._access_order[k])
+        self._remove_key(lru_key)
+    
+    def clear(self) -> None:
+        """清空快取"""
+        with self._lock:
+            self._cache.clear()
+            self._timestamps.clear()
+            self._access_order.clear()
+            self._access_counter = 0
+    
+    def stats(self) -> Dict[str, Any]:
+        """獲取快取統計"""
+        with self._lock:
+            return {
+                'size': len(self._cache),
+                'max_size': self.max_size,
+                'ttl': self.ttl,
+                'access_count': self._access_counter
+            }
 
 # 全域快取實例
-api_cache = SimpleCache(max_size=50, ttl=60)  # API快取，1分鐘TTL
-data_cache = SimpleCache(max_size=200, ttl=300)  # 數據快取，5分鐘TTL
+api_cache = AdvancedCache(max_size=50, ttl=config.API_CACHE_TTL)
+data_cache = AdvancedCache(max_size=config.MAX_CACHE_SIZE, ttl=config.DATA_CACHE_TTL)
+
+# === 向後兼容變數 ===
+PSUTIL_AVAILABLE = import_manager.is_available('psutil')
+PYFTPDLIB_AVAILABLE = bool(pyftpdlib_modules)
+
+# === 裝飾器和工具函數 ===
 
 def cached_api_response(cache_key_func):
     """API響應快取裝飾器"""
@@ -242,25 +428,29 @@ def cached_api_response(cache_key_func):
             # 嘗試從快取獲取
             cached_result = api_cache.get(cache_key)
             if cached_result:
+                logger.debug(f"快取命中: {cache_key}")
                 return cached_result
             
             # 執行原函數
             result = func(*args, **kwargs)
             
             # 只快取成功的響應
-            if hasattr(result, 'get_json') and result.get_json().get('success'):
-                api_cache.set(cache_key, result)
+            if hasattr(result, 'get_json'):
+                response_data = result.get_json()
+                if response_data and response_data.get('success'):
+                    api_cache.set(cache_key, result)
+                    logger.debug(f"快取設置: {cache_key}")
             
             return result
         return wrapper
     return decorator
 
-# === 性能優化和工具函數 ===
-
 class PerformanceTimer:
-    """性能計時器"""
-    def __init__(self, operation_name):
+    """性能計時器上下文管理器"""
+    
+    def __init__(self, operation_name: str, log_threshold: float = 1.0):
         self.operation_name = operation_name
+        self.log_threshold = log_threshold
         self.start_time = None
     
     def __enter__(self):
@@ -269,10 +459,10 @@ class PerformanceTimer:
     
     def __exit__(self, exc_type, exc_val, exc_tb):
         duration = time.time() - self.start_time
-        if duration > 1.0:  # 只記錄超過1秒的操作
-            logging.info(f"{self.operation_name} 執行時間: {duration:.2f}秒")
+        if duration > self.log_threshold:
+            logger.info(f"{self.operation_name} 執行時間: {duration:.2f}秒")
 
-def safe_json_response(success, message, data=None, **kwargs):
+def safe_json_response(success: bool, message: str, data: Any = None, **kwargs) -> Response:
     """安全的JSON響應生成器"""
     response = {
         'success': success,
@@ -284,9 +474,14 @@ def safe_json_response(success, message, data=None, **kwargs):
         response['data'] = data
     
     response.update(kwargs)
-    return jsonify(response)
+    
+    # 添加性能頭
+    resp = make_response(jsonify(response))
+    resp.headers['X-Response-Time'] = str(int(time.time() * 1000))
+    
+    return resp
 
-def validate_request_data(required_fields, data):
+def validate_request_data(required_fields: List[str], data: Dict) -> Tuple[bool, Optional[str]]:
     """驗證請求數據的必要欄位"""
     if not data:
         return False, "缺少請求數據"
@@ -297,16 +492,16 @@ def validate_request_data(required_fields, data):
     
     return True, None
 
-def handle_api_error(operation_name):
+def handle_api_error(operation_name: str, log_threshold: float = 1.0):
     """API錯誤處理裝飾器"""
     def decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
             try:
-                with PerformanceTimer(operation_name):
+                with PerformanceTimer(operation_name, log_threshold):
                     return func(*args, **kwargs)
             except Exception as e:
-                logging.error(f"{operation_name} 失敗: {e}")
+                logger.error(f"{operation_name} 失敗: {e}", exc_info=True)
                 return safe_json_response(
                     success=False,
                     message=f"{operation_name} 失敗: {str(e)}"
@@ -314,27 +509,87 @@ def handle_api_error(operation_name):
         return wrapper
     return decorator
 
-# === 設定日誌與應用初始化 ===
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] [Dashboard] %(message)s',
-    handlers=[
-        logging.StreamHandler()
-    ]
-)
+def rate_limit(max_calls: int, period: int):
+    """簡單的速率限制裝飾器"""
+    calls = {}
+    
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            now = time.time()
+            client_ip = request.remote_addr if request else 'unknown'
+            
+            # 清理過期的記錄
+            calls[client_ip] = [call_time for call_time in calls.get(client_ip, []) 
+                               if now - call_time < period]
+            
+            # 檢查是否超過限制
+            if len(calls.get(client_ip, [])) >= max_calls:
+                return safe_json_response(
+                    success=False,
+                    message="請求過於頻繁，請稍後再試"
+                ), 429
+            
+            # 記錄新的請求
+            calls.setdefault(client_ip, []).append(now)
+            
+            return func(*args, **kwargs)
+        return wrapper
+    return decorator
+
+# === Flask 應用初始化 ===
+def create_app() -> Flask:
+    """創建並配置 Flask 應用"""
+    app = Flask(__name__)
+    app.secret_key = config.SECRET_KEY
+    
+    # 配置 Flask
+    app.config.update({
+        'JSON_AS_ASCII': False,
+        'JSONIFY_MIMETYPE': 'application/json; charset=utf-8',
+        'MAX_CONTENT_LENGTH': 16 * 1024 * 1024,  # 16MB max file size
+        'SEND_FILE_MAX_AGE_DEFAULT': 300,  # 5 minutes cache for static files
+    })
+    
+    # 註冊錯誤處理器
+    @app.errorhandler(404)
+    def not_found(error):
+        return safe_json_response(False, "API 端點不存在"), 404
+    
+    @app.errorhandler(405)
+    def method_not_allowed(error):
+        return safe_json_response(False, "HTTP 方法不被允許"), 405
+    
+    @app.errorhandler(429)
+    def rate_limit_exceeded(error):
+        return safe_json_response(False, "請求過於頻繁"), 429
+    
+    @app.errorhandler(500)
+    def internal_error(error):
+        logger.error(f"內部伺服器錯誤: {error}")
+        return safe_json_response(False, "內部伺服器錯誤"), 500
+    
+    # 添加 CORS 支援
+    @app.after_request
+    def after_request(response):
+        response.headers['Access-Control-Allow-Origin'] = '*'
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+        response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
+        return response
+    
+    return app
 
 # 建立 Flask 應用程式
-app = Flask(__name__)
-app.secret_key = 'dashboard_secret_key_2025'
+app = create_app()
 
-# 樹莓派 API 配置 - 支援動態配置
+# === 樹莓派連接配置 ===
 RASPBERRY_PI_CONFIG = {
-    'host': '192.168.113.239',  # 實際樹莓派地址
-    'port': 5000,
-    'timeout': 10,
-    'auto_discover': True,      # 是否啟用自動發現
-    'backup_hosts': [           # 備用IP地址列表
-        '127.0.0.1',            # 本地測試地址
+    'host': config.RASPBERRY_PI_HOST,
+    'port': config.RASPBERRY_PI_PORT,
+    'timeout': config.REQUEST_TIMEOUT,
+    'auto_discover': True,
+    'backup_hosts': [
+        '127.0.0.1',
         '192.168.113.244',
         '192.168.1.100',
         '192.168.50.1', 
@@ -342,12 +597,41 @@ RASPBERRY_PI_CONFIG = {
     ]
 }
 
-def get_raspberry_pi_url():
+def get_raspberry_pi_url() -> str:
     """取得樹莓派 API 基礎 URL"""
     return f"http://{RASPBERRY_PI_CONFIG['host']}:{RASPBERRY_PI_CONFIG['port']}"
 
-def discover_raspberry_pi():
+def discover_raspberry_pi() -> Optional[str]:
     """自動發現樹莓派設備"""
+    if not import_manager.is_available('requests'):
+        return None
+    
+    hosts_to_try = [RASPBERRY_PI_CONFIG['host']] + RASPBERRY_PI_CONFIG['backup_hosts']
+    
+    for host in hosts_to_try:
+        try:
+            url = f"http://{host}:{RASPBERRY_PI_CONFIG['port']}/api/health"
+            response = requests.get(url, timeout=3)
+            
+            if response.status_code == 200:
+                logger.info(f"發現樹莓派設備: {host}")
+                RASPBERRY_PI_CONFIG['host'] = host
+                return host
+                
+        except Exception as e:
+            logger.debug(f"無法連接到 {host}: {e}")
+    
+    logger.warning("未發現可用的樹莓派設備")
+    return None
+
+def initialize_raspberry_pi_connection():
+    """初始化樹莓派連接"""
+    if config.STANDALONE_MODE and RASPBERRY_PI_CONFIG['auto_discover']:
+        discovered_host = discover_raspberry_pi()
+        if discovered_host:
+            logger.info(f"自動發現並連接到樹莓派: {discovered_host}")
+        else:
+            logger.warning("自動發現失敗，使用默認配置")
     discovered_devices = []
     
     def check_host(ip):
@@ -4860,42 +5144,71 @@ def update_dashboard_config():
             'message': f'更新配置失敗: {str(e)}'
         })
 
-# === 應用程式初始化 ===
-if __name__ == '__main__':
+# === 主程式入口 ===
+def main():
+    """主程式入口"""
     try:
-        print("啟動 Dashboard API 服務...")
-        print("支援的路由:")
-        print("  - Dashboard 主頁: http://localhost:5001/dashboard")
-        print("  - 設備設定: http://localhost:5001/db-setting")
-        print("  - API 健康檢查: http://localhost:5001/api/health")
-        print("  - API 狀態: http://localhost:5001/api/status")
+        # 顯示啟動資訊
+        print("=" * 60)
+        print("🚀 H100 Dashboard API 服務啟動中...")
+        print("=" * 60)
+        
+        # 顯示配置資訊
+        print(f"🏠 運行模式: {'獨立模式' if config.STANDALONE_MODE else '本地模式'}")
+        print(f"🌐 監聽地址: {config.HOST}:{config.PORT}")
+        print(f"🔧 調試模式: {'啟用' if config.DEBUG else '停用'}")
+        
+        if config.STANDALONE_MODE:
+            print(f"🔗 樹莓派地址: {config.RASPBERRY_PI_HOST}:{config.RASPBERRY_PI_PORT}")
+        
+        # 顯示可用模組狀態
+        print(f"📦 Requests: {'✓' if import_manager.is_available('requests') else '✗'}")
+        print(f"📦 psutil: {'✓' if import_manager.is_available('psutil') else '✗'}")
+        print(f"📦 資料庫: {'✓' if DATABASE_AVAILABLE else '✗'}")
+        print(f"📦 FTP: {'✓' if PYFTPDLIB_AVAILABLE else '✗'}")
+        
+        # 顯示 API 端點
+        print("\n🌐 可用的 API 端點:")
+        print(f"  - 健康檢查: http://localhost:{config.PORT}/api/health")
+        print(f"  - 系統狀態: http://localhost:{config.PORT}/api/status")
+        print(f"  - Dashboard: http://localhost:{config.PORT}/dashboard")
         
         # 初始化樹莓派連接
-        initialize_raspberry_pi_connection()
+        if config.STANDALONE_MODE:
+            initialize_raspberry_pi_connection()
         
-        # 自動啟動 UART 讀取器以開始接收數據
-        if uart_reader:
+        # 嘗試啟動 UART 讀取器
+        if uart_reader and not config.STANDALONE_MODE:
             try:
-                print("正在啟動 UART 讀取器...")
+                print("\n📡 啟動 UART 讀取器...")
                 if uart_reader.start_reading():
-                    print("✓ UART 讀取器啟動成功，開始接收數據")
-                    if DATABASE_AVAILABLE:
-                        print("✓ 數據將自動存入資料庫")
-                    else:
-                        print("⚠ 資料庫不可用，數據僅存入 CSV 檔案")
+                    print("✓ UART 讀取器啟動成功")
                 else:
                     print("✗ UART 讀取器啟動失敗")
-            except Exception as uart_e:
-                print(f"✗ UART 啟動錯誤: {uart_e}")
-        else:
-            print("⚠ UART 讀取器不可用")
+            except Exception as e:
+                print(f"✗ UART 啟動錯誤: {e}")
         
-        # 啟動 Flask 應用程式 (使用不同的端口避免衝突)
-        app.run(debug=True, host='0.0.0.0', port=5001)
+        print("\n" + "=" * 60)
+        print("🎉 Dashboard API 服務已啟動!")
+        print("=" * 60)
         
+        # 啟動 Flask 應用程式
+        app.run(
+            debug=config.DEBUG, 
+            host=config.HOST, 
+            port=config.PORT,
+            threaded=True
+        )
+        
+    except KeyboardInterrupt:
+        print("\n👋 收到停止信號，正在關閉服務...")
     except Exception as e:
-        print(f"啟動 Dashboard API 服務時發生錯誤: {e}")
-        print("請檢查:")
-        print("1. 端口 5001 是否被其他程式佔用")
+        logger.error(f"啟動 Dashboard API 服務時發生錯誤: {e}")
+        print(f"\n❌ 啟動失敗: {e}")
+        print("\n🔍 請檢查:")
+        print(f"1. 端口 {config.PORT} 是否被其他程式佔用")
         print("2. 相依套件是否已正確安裝")
-        print("3. UART 設備是否正確連接")
+        print("3. 配置是否正確")
+
+if __name__ == '__main__':
+    main()

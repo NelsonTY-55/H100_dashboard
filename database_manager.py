@@ -187,18 +187,18 @@ class DatabaseManager:
         return None
     
     def get_factory_areas(self) -> List[str]:
-        """取得所有廠區列表"""
+        """取得所有廠區列表，優先從 device_info 表獲取最新資料"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                # 從兩個表中查詢廠區，合併結果
+                # 優先從 device_info 表獲取廠區，再從 uart_data 補充
                 cursor.execute('''
                     SELECT DISTINCT factory_area 
                     FROM (
-                        SELECT factory_area FROM uart_data 
+                        SELECT factory_area FROM device_info 
                         WHERE factory_area IS NOT NULL AND factory_area != ''
                         UNION
-                        SELECT factory_area FROM device_info 
+                        SELECT factory_area FROM uart_data 
                         WHERE factory_area IS NOT NULL AND factory_area != ''
                     ) AS combined
                     ORDER BY factory_area
@@ -209,30 +209,32 @@ class DatabaseManager:
             return []
     
     def get_floor_levels(self, factory_area: str = None) -> List[str]:
-        """取得樓層列表"""
+        """取得樓層列表，優先從 device_info 表獲取最新資料"""
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 if factory_area:
+                    # 指定廠區時，先從 device_info 取得該廠區的樓層，再從 uart_data 補充
                     cursor.execute('''
                         SELECT DISTINCT floor_level 
                         FROM (
-                            SELECT floor_level FROM uart_data 
+                            SELECT floor_level FROM device_info 
                             WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ''
                             UNION
-                            SELECT floor_level FROM device_info 
+                            SELECT floor_level FROM uart_data 
                             WHERE factory_area = ? AND floor_level IS NOT NULL AND floor_level != ''
                         ) AS combined
                         ORDER BY floor_level
                     ''', (factory_area, factory_area))
                 else:
+                    # 沒有指定廠區時，返回所有樓層（優先從 device_info 獲取）
                     cursor.execute('''
                         SELECT DISTINCT floor_level 
                         FROM (
-                            SELECT floor_level FROM uart_data 
+                            SELECT floor_level FROM device_info 
                             WHERE floor_level IS NOT NULL AND floor_level != ''
                             UNION
-                            SELECT floor_level FROM device_info 
+                            SELECT floor_level FROM uart_data 
                             WHERE floor_level IS NOT NULL AND floor_level != ''
                         ) AS combined
                         ORDER BY floor_level
