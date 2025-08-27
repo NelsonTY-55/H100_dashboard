@@ -26,6 +26,173 @@
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
+        /* Custom Additions for DB Settings Dropdown */
+        .filter-card {
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            box-shadow: var(--box-shadow);
+            border: none;
+            overflow: hidden;
+            margin-bottom: 1.5rem;
+        }
+
+        .filter-card .card-header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 1rem 1.5rem;
+            border: none;
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+
+        .filter-card .card-body {
+            padding: 1.5rem;
+        }
+
+        .filter-card .form-label {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+
+        .filter-card .form-select,
+        .filter-card .form-control {
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 0.75rem;
+            transition: var(--transition);
+            font-size: 0.9rem;
+        }
+
+        .filter-card .form-select:focus,
+        .filter-card .form-control:focus {
+            border-color: #667eea;
+            box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
+        }
+
+        .filter-card .btn {
+            border-radius: 8px;
+            padding: 0.75rem 1.5rem;
+            font-weight: 500;
+            transition: var(--transition);
+        }
+
+        .filter-card .btn-primary {
+            background: var(--primary-gradient);
+            border: none;
+        }
+
+        .filter-card .btn-primary:hover {
+            background: var(--primary-hover-gradient);
+            transform: translateY(-1px);
+        }
+
+        .filter-card .btn-secondary {
+            background: #6c757d;
+            border: none;
+        }
+
+        .filter-card .btn-secondary:hover {
+            background: #5a6268;
+            transform: translateY(-1px);
+        }
+
+        .stat-card {
+            background: var(--card-bg);
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            box-shadow: var(--box-shadow);
+            border: none;
+            transition: var(--transition);
+            height: 100%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: var(--primary-gradient);
+            transition: var(--transition);
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+        }
+
+        .stat-card:hover::before {
+            height: 6px;
+        }
+
+        .stat-icon {
+            font-size: 2rem;
+            color: #667eea;
+            margin-bottom: 1rem;
+        }
+
+        .stat-number {
+            font-size: 2.5rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .chart-container {
+            background: white;
+            border-radius: var(--border-radius);
+            padding: 1.5rem;
+            box-shadow: var(--box-shadow);
+            position: relative;
+        }
+
+        #settingDescription {
+            border-radius: 8px;
+            border: none;
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            border-left: 4px solid #2196f3;
+        }
+
+        /* Loading states */
+        .form-select:disabled {
+            background-color: #f8f9fa;
+            opacity: 0.7;
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        /* Animations */
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        #deviceInfoSection,
+        #currentDataSection {
+            animation: fadeInUp 0.5s ease;
+        }
+
+        /* 原有樣式保持 */
         body {
             background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -1191,7 +1358,568 @@
         </div>
     </div>
 
+
+        <!-- 設備選擇與篩選器 -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="filter-card">
+                    <div class="card-header">
+                        <h5 class="mb-0">
+                            <i class="fas fa-filter me-2"></i>設備選擇與資料篩選
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-3">
+                                <label for="factoryArea" class="form-label">廠區</label>
+                                <select class="form-select" id="factoryArea" onchange="onFactoryAreaChange()">
+                                    <option value="">載入中...</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="floorLevel" class="form-label">樓層</label>
+                                <select class="form-select" id="floorLevel" onchange="onFloorLevelChange()" disabled>
+                                    <option value="">請先選擇廠區</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="macId" class="form-label">MAC ID</label>
+                                <select class="form-select" id="macId" onchange="onMacIdChange()" disabled>
+                                    <option value="">請先選擇樓層</option>
+                                </select>
+                            </div>
+                            <div class="col-md-3">
+                                <label for="deviceModel" class="form-label">設備型號</label>
+                                <select class="form-select" id="deviceModel" onchange="onDeviceModelChange()" disabled>
+                                    <option value="">請先選擇 MAC ID</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="row mt-3 align-items-end">
+                            <div class="col-md-3">
+                                <label for="timeRange" class="form-label">時間範圍</label>
+                                <select class="form-select" id="timeRange">
+                                    <option value="10">最近 10 分鐘</option>
+                                    <option value="30">最近 30 分鐘</option>
+                                    <option value="60">最近 1 小時</option>
+                                    <option value="180">最近 3 小時</option>
+                                    <option value="360">最近 6 小時</option>
+                                    <option value="720">最近 12 小時</option>
+                                    <option value="1440">最近 24 小時</option>
+                                </select>
+                            </div>
+                            <div class="col-md-9">
+                                <div class="d-flex gap-2 justify-content-end">
+                                    <button class="btn btn-success" onclick="generateCurrentCharts()" disabled id="generateBtn">
+                                        <i class="fas fa-chart-line me-1"></i>
+                                        產生電流圖表
+                                    </button>
+                                    <button class="btn btn-primary" onclick="syncDeviceSettings()" disabled id="syncDeviceBtn">
+                                        <i class="fas fa-sync me-1"></i>
+                                        同步設備設定
+                                    </button>
+                                    <button class="btn btn-outline-secondary" onclick="resetFilters()">
+                                        <i class="fas fa-undo me-1"></i>
+                                        重置篩選
+                                    </button>
+                                    <button class="btn btn-outline-info" onclick="refreshSelection()">
+                                        <i class="fas fa-refresh me-1"></i>
+                                        重新整理選項
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 選中設備資訊顯示 -->
+        <div class="row mb-4" id="deviceInfoSection" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-microchip me-2"></i>選中設備資訊
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row" id="deviceInfoContent">
+                            <!-- 設備資訊內容將由 JavaScript 動態填入 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 電流數據區域 -->
+        <div class="row" id="currentDataSection" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">
+                            <i class="fas fa-chart-area me-2"></i>電流監控數據
+                        </h5>
+                    </div>
+                    <div class="card-body">
+                        <!-- 統計資料卡片 -->
+                        <div class="row mb-4">
+                            <div class="col-md-3">
+                                <div class="stat-card text-center">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-chart-line"></i>
+                                    </div>
+                                    <div class="stat-number" id="avgCurrent">--</div>
+                                    <div class="stat-label">平均電流 (A)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card text-center">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-arrow-up"></i>
+                                    </div>
+                                    <div class="stat-number" id="maxCurrent">--</div>
+                                    <div class="stat-label">最大電流 (A)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card text-center">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-arrow-down"></i>
+                                    </div>
+                                    <div class="stat-number" id="minCurrent">--</div>
+                                    <div class="stat-label">最小電流 (A)</div>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="stat-card text-center">
+                                    <div class="stat-icon">
+                                        <i class="fas fa-database"></i>
+                                    </div>
+                                    <div class="stat-number" id="currentRecordsCount">--</div>
+                                    <div class="stat-label">數據筆數</div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 電流圖表 -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <div class="chart-container">
+                                    <canvas id="currentChart" style="height: 400px;"></canvas>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 多頻道電流圖表 -->
+                        <div class="row" id="currentChartsSection" style="display: none;">
+                            <div class="col-12">
+                                <h6 class="mb-3">
+                                    <i class="fas fa-chart-area me-2"></i>多頻道電流圖表
+                                </h6>
+                                <div id="currentChartsGrid" class="clearfix">
+                                    <!-- 電流圖表將在這裡動態生成 -->
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 最新數據表格 -->
+                        <div class="row mt-4">
+                            <div class="col-12">
+                                <h6 class="mb-3">
+                                    <i class="fas fa-table me-2"></i>最新電流數據
+                                </h6>
+                                <div class="table-responsive">
+                                    <div id="latestCurrentData">
+                                        <div class="text-center text-muted p-4">
+                                            <i class="fas fa-spinner fa-spin fa-2x mb-3"></i>
+                                            <p>載入中...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // ==================== DB 設定選單相關函數 ====================
+        
+        // 導航到 DB 設定頁面的特定區域
+        function navigateToDbSetting() {
+            const select = document.getElementById('dbSettingSelect');
+            const selectedValue = select.value;
+            
+            if (!selectedValue) {
+                hideSettingDescription();
+                return;
+            }
+            
+            // 顯示設定項目說明
+            showSettingDescription(selectedValue);
+            
+            // 根據選擇的項目導航到相應的頁面區域
+            let targetUrl = '/db-setting';
+            
+            switch(selectedValue) {
+                case 'device-info':
+                    targetUrl += '#deviceSettingForm';
+                    break;
+                case 'preview':
+                    targetUrl += '#previewSection';
+                    break;
+                case 'quick-nav':
+                    targetUrl += '#quickNavigation';
+                    break;
+                case 'debug-panel':
+                    targetUrl += '#debugPanel';
+                    break;
+                case 'raspberry-pi':
+                    targetUrl += '#raspberryPiConfig';
+                    break;
+                case 'uart-test':
+                    targetUrl += '#uartTest';
+                    break;
+                case 'sync-devices':
+                    targetUrl += '#syncDevices';
+                    break;
+            }
+            
+            // 在當前頁面導航
+            window.location.href = targetUrl;
+        }
+        
+        // 在新分頁開啟 DB 設定頁面
+        function openDbSettingInNewTab() {
+            const select = document.getElementById('dbSettingSelect');
+            const selectedValue = select.value;
+            
+            let targetUrl = '/db-setting';
+            
+            if (selectedValue) {
+                switch(selectedValue) {
+                    case 'device-info':
+                        targetUrl += '#deviceSettingForm';
+                        break;
+                    case 'preview':
+                        targetUrl += '#previewSection';
+                        break;
+                    case 'quick-nav':
+                        targetUrl += '#quickNavigation';
+                        break;
+                    case 'debug-panel':
+                        targetUrl += '#debugPanel';
+                        break;
+                    case 'raspberry-pi':
+                        targetUrl += '#raspberryPiConfig';
+                        break;
+                    case 'uart-test':
+                        targetUrl += '#uartTest';
+                        break;
+                    case 'sync-devices':
+                        targetUrl += '#syncDevices';
+                        break;
+                }
+            }
+            
+            window.open(targetUrl, '_blank');
+        }
+        
+        // 顯示設定項目說明
+        function showSettingDescription(settingType) {
+            const descriptions = {
+                'device-info': '設備資訊設定 - 配置廠區名稱、設備位置、型號和序號等基本資訊',
+                'preview': '設定預覽 - 即時預覽設備設定的效果，確認設定是否正確',
+                'quick-nav': '快速導航 - 提供快速前往儀表板、更新 MAC ID、載入預設設定等功能',
+                'debug-panel': '調試面板 - 查看 API 狀態、響應數據和系統除錯資訊',
+                'raspberry-pi': '樹莓派連接配置 - 設定樹莓派的 IP 地址和連接端口',
+                'uart-test': 'UART 測試 - 測試 UART 連接狀態和數據接收',
+                'sync-devices': '同步設備資料 - 同步設備設定檔案和資料庫一致性'
+            };
+            
+            const description = descriptions[settingType];
+            if (description) {
+                document.getElementById('descriptionText').textContent = description;
+                document.getElementById('settingDescription').style.display = 'block';
+            }
+        }
+        
+        // 隱藏設定項目說明
+        function hideSettingDescription() {
+            document.getElementById('settingDescription').style.display = 'none';
+        }
+        
+        // 重新整理 DB 設定
+        function refreshDbSettings() {
+            // 重置下拉選單
+            document.getElementById('dbSettingSelect').value = '';
+            hideSettingDescription();
+            
+            // 顯示成功提示
+            const alert = document.createElement('div');
+            alert.className = 'alert alert-success alert-dismissible fade show mt-2';
+            alert.innerHTML = `
+                <i class="fas fa-check-circle me-2"></i>
+                DB 設定選單已重新整理
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            const cardBody = document.querySelector('#dbSettingSelect').closest('.card-body');
+            cardBody.appendChild(alert);
+            
+            // 3秒後自動移除提示
+            setTimeout(() => {
+                if (alert.parentNode) {
+                    alert.remove();
+                }
+            }, 3000);
+        }
+
+        // ==================== 設備資訊顯示函數 ====================
+        
+        // 更新選擇的設備資訊顯示
+        function updateSelectedDeviceInfo() {
+            const factoryArea = getElement('factoryArea')?.value || '';
+            const floorLevel = getElement('floorLevel')?.value || '';
+            const macId = getElement('macId')?.value || '';
+            const deviceModel = getElement('deviceModel')?.value || '';
+            
+            const deviceInfoSection = getElement('deviceInfoSection');
+            const deviceInfoContent = getElement('deviceInfoContent');
+            const generateBtn = getElement('generateBtn');
+            
+            if (!deviceInfoSection || !deviceInfoContent) return;
+            
+            // 如果有選擇任何項目，顯示設備資訊區域
+            if (factoryArea || floorLevel || macId || deviceModel) {
+                deviceInfoSection.style.display = 'block';
+                
+                // 更新設備資訊內容
+                deviceInfoContent.innerHTML = `
+                    <div class="col-md-3">
+                        <div class="device-info-item-new">
+                            <div class="device-info-label">
+                                <i class="fas fa-industry text-primary"></i>
+                                廠區
+                            </div>
+                            <div class="device-info-value-new">${factoryArea || '未選擇'}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="device-info-item-new">
+                            <div class="device-info-label">
+                                <i class="fas fa-building text-info"></i>
+                                樓層
+                            </div>
+                            <div class="device-info-value-new">${floorLevel || '未選擇'}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="device-info-item-new">
+                            <div class="device-info-label">
+                                <i class="fas fa-wifi text-success"></i>
+                                MAC ID
+                            </div>
+                            <div class="device-info-value-new mac-id-display">${macId || '未選擇'}</div>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="device-info-item-new">
+                            <div class="device-info-label">
+                                <i class="fas fa-microchip text-warning"></i>
+                                設備型號
+                            </div>
+                            <div class="device-info-value-new">${deviceModel || '未選擇'}</div>
+                        </div>
+                    </div>
+                `;
+                
+                // 檢查是否所有必要項目都已選擇，啟用/禁用產生圖表按鈕
+                if (generateBtn) {
+                    generateBtn.disabled = !(factoryArea && floorLevel && macId && deviceModel);
+                }
+            } else {
+                deviceInfoSection.style.display = 'none';
+                if (generateBtn) {
+                    generateBtn.disabled = true;
+                }
+            }
+        }
+        
+        // 載入設備設定
+        async function loadDeviceSettings(macId) {
+            if (!macId) {
+                currentDeviceSettings = null;
+                return;
+            }
+            
+            try {
+                console.log(`正在載入設備 ${macId} 的設定...`);
+                
+                const response = await fetch(`/api/device-settings?mac_id=${encodeURIComponent(macId)}`);
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('設備設定API回應:', data);
+                    
+                    if (data.success && data.settings) {
+                        currentDeviceSettings = data.settings;
+                        console.log('設備設定載入成功:', currentDeviceSettings);
+                        
+                        // 可以在這裡更新設備資訊顯示
+                        updateDeviceInfoWithSettings(data.settings);
+                    } else {
+                        console.warn('未找到設備設定資料');
+                        currentDeviceSettings = null;
+                    }
+                } else {
+                    console.error('載入設備設定失敗:', response.status);
+                    currentDeviceSettings = null;
+                }
+            } catch (error) {
+                console.error('載入設備設定時發生錯誤:', error);
+                currentDeviceSettings = null;
+            }
+        }
+        
+        // 使用設備設定更新設備資訊顯示
+        function updateDeviceInfoWithSettings(settings) {
+            const deviceInfoContent = getElement('deviceInfoContent');
+            if (!deviceInfoContent) return;
+            
+            const factoryArea = settings.device_name || getElement('factoryArea')?.value || '';
+            const floorLevel = getElement('floorLevel')?.value || '';
+            const macId = settings.device_serial || getElement('macId')?.value || '';
+            const deviceModel = typeof settings.device_model === 'object' ? 
+                Object.values(settings.device_model).join(', ') : 
+                (settings.device_model || getElement('deviceModel')?.value || '');
+            
+            // 添加額外的設備資訊
+            deviceInfoContent.innerHTML = `
+                <div class="col-md-2">
+                    <div class="device-info-item-new">
+                        <div class="device-info-label">
+                            <i class="fas fa-industry text-primary"></i>
+                            廠區/設備名稱
+                        </div>
+                        <div class="device-info-value-new">${factoryArea || '未設定'}</div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="device-info-item-new">
+                        <div class="device-info-label">
+                            <i class="fas fa-building text-info"></i>
+                            樓層
+                        </div>
+                        <div class="device-info-value-new">${floorLevel || '未選擇'}</div>
+                    </div>
+                </div>
+                <div class="col-md-2">
+                    <div class="device-info-item-new">
+                        <div class="device-info-label">
+                            <i class="fas fa-wifi text-success"></i>
+                            MAC ID
+                        </div>
+                        <div class="device-info-value-new mac-id-display">${macId || '未設定'}</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="device-info-item-new">
+                        <div class="device-info-label">
+                            <i class="fas fa-microchip text-warning"></i>
+                            設備型號
+                        </div>
+                        <div class="device-info-value-new">${deviceModel || '未設定'}</div>
+                    </div>
+                </div>
+                <div class="col-md-3">
+                    <div class="device-info-item-new">
+                        <div class="device-info-label">
+                            <i class="fas fa-map-marker-alt text-danger"></i>
+                            設備位置
+                        </div>
+                        <div class="device-info-value-new">${settings.device_location || '未設定'}</div>
+                    </div>
+                </div>
+            `;
+            
+            // 如果有設備描述，添加完整寬度的描述區域
+            if (settings.device_description) {
+                const descriptionDiv = document.createElement('div');
+                descriptionDiv.className = 'col-12 mt-3';
+                descriptionDiv.innerHTML = `
+                    <div class="device-info-item-new">
+                        <div class="device-info-label">
+                            <i class="fas fa-file-text text-secondary"></i>
+                            設備描述
+                        </div>
+                        <div class="device-info-value-new">${settings.device_description}</div>
+                    </div>
+                `;
+                deviceInfoContent.appendChild(descriptionDiv);
+            }
+        }
+        
+        // 重新整理儀表板
+        function refreshDashboard() {
+            // 顯示載入動畫
+            showLoading('重新整理儀表板中...');
+            
+            // 重新初始化
+            setTimeout(() => {
+                initializeDashboard().then(() => {
+                    hideLoading();
+                    
+                    // 顯示成功提示
+                    const alert = document.createElement('div');
+                    alert.className = 'alert alert-success alert-dismissible fade show position-fixed';
+                    alert.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+                    alert.innerHTML = `
+                        <i class="fas fa-check-circle me-2"></i>
+                        儀表板已重新整理
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    
+                    document.body.appendChild(alert);
+                    
+                    // 5秒後自動移除提示
+                    setTimeout(() => {
+                        if (alert.parentNode) {
+                            alert.remove();
+                        }
+                    }, 5000);
+                }).catch(error => {
+                    hideLoading();
+                    console.error('重新整理失敗:', error);
+                    alert('重新整理失敗，請稍後再試');
+                });
+            }, 1000);
+        }
+        
+        // 自動載入最新電流數據
+        async function loadLatestCurrentDataAuto() {
+            try {
+                // 只有在沒有選擇特定設備時才自動載入
+                const macId = getElement('macId')?.value;
+                if (macId) return; // 如果已選擇設備，不執行自動載入
+                
+                const response = await fetch('/api/database/latest-auto');
+                const result = await response.json();
+                
+                if (result.success && result.data) {
+                    // 可以在這裡更新一些自動載入的數據顯示
+                    console.log('自動載入最新數據:', result.data);
+                }
+            } catch (error) {
+                // 靜默處理自動載入錯誤，不影響用戶操作
+                console.debug('自動載入最新數據失敗:', error);
+            }
+        }
+
         // ==================== 全域變數 ====================
         let currentChart = null;
         let currentDataType = 'current';
@@ -1304,6 +2032,13 @@
             resetDependentSelectors(['macId', 'deviceModel']);
             updateSelectedDeviceInfo();
             saveCurrentSelection();
+            
+            // 載入樓層選項
+            if (factoryArea) {
+                loadFloorLevels(factoryArea);
+                const floorSelect = getElement('floorLevel');
+                if (floorSelect) floorSelect.disabled = false;
+            }
         }
         
         // 樓層選擇變更事件
@@ -1318,6 +2053,8 @@
             
             if (floorLevel) {
                 loadMacIds();
+                const macSelect = getElement('macId');
+                if (macSelect) macSelect.disabled = false;
             }
         }
         
@@ -1332,6 +2069,9 @@
             if (macId) {
                 loadDeviceSettings(macId);
                 loadDeviceModels();
+                
+                const deviceSelect = getElement('deviceModel');
+                if (deviceSelect) deviceSelect.disabled = false;
                 
                 const syncBtn = getElement('syncDeviceBtn');
                 if (syncBtn) syncBtn.disabled = false;
@@ -1351,10 +2091,17 @@
         
         // 重置相依的選擇器
         function resetDependentSelectors(selectorIds) {
+            const dependencyMap = {
+                'floorLevel': '請先選擇廠區',
+                'macId': '請先選擇樓層',
+                'deviceModel': '請先選擇 MAC ID'
+            };
+            
             selectorIds.forEach(id => {
                 const select = getElement(id);
                 if (select) {
-                    select.innerHTML = '<option value="">請先選擇上層項目</option>';
+                    const placeholder = dependencyMap[id] || '請先選擇上層項目';
+                    select.innerHTML = `<option value="">${placeholder}</option>`;
                     select.disabled = true;
                 }
             });

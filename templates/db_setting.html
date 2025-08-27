@@ -7,56 +7,37 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
-        /* 共用變數 */
-        :root {
-            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            --primary-hover-gradient: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
-            --sidebar-bg: #2563eb;
-            --sidebar-header-bg: #1e40af;
-            --sidebar-border: #3b82f6;
-            --transition-smooth: 0.3s cubic-bezier(.4,0,.2,1);
-            --box-shadow-card: 0 4px 6px rgba(0, 0, 0, 0.1);
-            --border-radius-card: 10px;
-        }
-
-        /* 基礎元件樣式 */
         .setting-header {
-            background: var(--primary-gradient);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             margin-bottom: 30px;
         }
-        
         .card {
             transition: transform 0.2s;
             border: none;
-            box-shadow: var(--box-shadow-card);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
         }
         .card:hover {
             transform: translateY(-2px);
         }
-        
         .form-control:focus {
             border-color: #667eea;
             box-shadow: 0 0 0 0.2rem rgba(102, 126, 234, 0.25);
         }
-        
         .btn-primary {
-            background: var(--primary-gradient);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             border: none;
         }
         .btn-primary:hover {
-            background: var(--primary-hover-gradient);
+            background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
             transform: translateY(-1px);
         }
-        
-        /* 功能區域樣式 */
         .preview-section {
             background-color: #f8f9fa;
-            border-radius: var(--border-radius-card);
+            border-radius: 10px;
             padding: 20px;
             margin-top: 20px;
         }
-        
         .device-info-card {
             background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
             color: white;
@@ -64,7 +45,6 @@
             padding: 20px;
             text-align: center;
         }
-        
         .status-indicator {
             display: inline-block;
             width: 12px;
@@ -74,10 +54,10 @@
             margin-right: 8px;
             animation: pulse 2s infinite;
         }
-        
         @keyframes pulse {
-            0%, 100% { opacity: 1; }
+            0% { opacity: 1; }
             50% { opacity: 0.5; }
+            100% { opacity: 1; }
         }
         
         /* 側邊欄樣式 */
@@ -88,34 +68,29 @@
             left: 0;
             top: 0;
             z-index: 1040;
-            background: var(--sidebar-bg);
+            background: #2563eb;
             color: #fff;
-            transition: width var(--transition-smooth);
+            transition: width 0.3s cubic-bezier(.4,0,.2,1);
             box-shadow: 2px 0 10px rgba(0,0,0,0.04);
         }
-        
         .sidebar-collapsible.collapsed {
             width: 60px !important;
         }
-        
         .sidebar-collapsible .sidebar-header {
-            background: var(--sidebar-header-bg);
-            border-bottom: 1px solid var(--sidebar-border);
+            background: #1e40af;
+            border-bottom: 1px solid #3b82f6;
         }
-        
         .sidebar-collapsible .sidebar-logo {
             width: 36px;
             height: 36px;
             background: rgba(255,255,255,0.08);
-            border-radius: var(--border-radius-card);
+            border-radius: 10px;
             font-size: 1.3rem;
         }
-        
         .sidebar-collapsible .sidebar-title {
             font-size: 1.15rem;
             transition: opacity 0.2s;
         }
-        
         .sidebar-collapsible.collapsed .sidebar-title,
         .sidebar-collapsible.collapsed .sidebar-link-text {
             opacity: 0;
@@ -123,7 +98,6 @@
             overflow: hidden;
             pointer-events: none;
         }
-        
         .sidebar-collapsible .nav-link {
             color: #fff !important;
             font-weight: 500;
@@ -132,28 +106,21 @@
             margin-bottom: 0.2rem;
             transition: background 0.2s, color 0.2s;
         }
-        
-        .sidebar-collapsible .nav-link.active, 
-        .sidebar-collapsible .nav-link:hover {
+        .sidebar-collapsible .nav-link.active, .sidebar-collapsible .nav-link:hover {
             background: linear-gradient(90deg, #60a5fa 0%, #818cf8 100%);
             color: #fff !important;
         }
-        
         .sidebar-collapsible .nav-link i {
             min-width: 22px;
             text-align: center;
         }
-        
-        /* 響應式布局 */
         body {
             padding-left: 220px;
-            transition: padding-left var(--transition-smooth);
+            transition: padding-left 0.3s cubic-bezier(.4,0,.2,1);
         }
-        
         .sidebar-collapsible.collapsed ~ *:not(.sidebar-collapsible) {
-            transition: margin-left var(--transition-smooth);
+            transition: margin-left 0.3s cubic-bezier(.4,0,.2,1);
         }
-        
         @media (max-width: 991.98px) {
             body {
                 padding-left: 0 !important;
@@ -528,85 +495,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // DOM 元素快取 - 提高性能並減少重複查詢
-        const DOM_CACHE = {
-            deviceName: null,
-            deviceLocation: null,
-            deviceDescription: null,
-            deviceSerial: null,
-            channelInfo: null,
-            deviceModelContainer: null,
-            currentTime: null,
-            previewTime: null,
-            dashboardBtn: null,
-            raspberryPiStatus: null,
-            raspberryPiHost: null,
-            raspberryPiPort: null,
-            sidebar: null,
-            sidebarCollapseBtn: null,
-            
-            // 初始化快取
-            init() {
-                this.deviceName = document.getElementById('deviceName');
-                this.deviceLocation = document.getElementById('deviceLocation');
-                this.deviceDescription = document.getElementById('deviceDescription');
-                this.deviceSerial = document.getElementById('deviceSerial');
-                this.channelInfo = document.getElementById('channelInfo');
-                this.deviceModelContainer = document.getElementById('deviceModelContainer');
-                this.currentTime = document.getElementById('current-time');
-                this.previewTime = document.getElementById('previewTime');
-                this.dashboardBtn = document.getElementById('dashboardBtn');
-                this.raspberryPiStatus = document.getElementById('raspberryPiStatus');
-                this.raspberryPiHost = document.getElementById('raspberryPiHost');
-                this.raspberryPiPort = document.getElementById('raspberryPiPort');
-                this.sidebar = document.getElementById('sidebar');
-                this.sidebarCollapseBtn = document.getElementById('sidebarCollapseBtn');
-            },
-            
-            // 安全取得元素
-            get(elementName) {
-                return this[elementName] || document.getElementById(elementName);
-            }
-        };
-
-        // 工具函數集合
-        const Utils = {
-            // 設定設備基本資訊
-            setDeviceInfo(data) {
-                DOM_CACHE.deviceName.value = data.device_name || '';
-                DOM_CACHE.deviceLocation.value = data.device_location || '';
-                DOM_CACHE.deviceDescription.value = data.device_description || '';
-            },
-            
-            // 清空設備基本資訊
-            clearDeviceInfo() {
-                DOM_CACHE.deviceName.value = '';
-                DOM_CACHE.deviceLocation.value = '';
-                DOM_CACHE.deviceDescription.value = '';
-            },
-            
-            // 顯示載入狀態
-            showLoading(element, message = '載入中...') {
-                if (element) {
-                    element.innerHTML = `<i class="fas fa-spinner fa-spin me-2"></i>${message}`;
-                }
-            },
-            
-            // 顯示錯誤訊息
-            showError(element, message) {
-                if (element) {
-                    element.innerHTML = `<i class="fas fa-times-circle text-danger me-2"></i>${message}`;
-                }
-            },
-            
-            // 顯示成功訊息
-            showSuccess(element, message) {
-                if (element) {
-                    element.innerHTML = `<i class="fas fa-check-circle text-success me-2"></i>${message}`;
-                }
-            }
-        };
-        
         // 頻道配置 - 只顯示頻道 0-6 供用戶設定設備型號（頻道 7 為電池電壓，系統自動處理）
         let CHANNEL_CONFIG = {
             MIN_CHANNEL: 0,    // 最小頻道號
@@ -633,12 +521,13 @@
         // 根據 MAC ID 載入頻道資訊
         async function loadChannelsForMacId(macId) {
             if (!macId) {
+                // 如果沒有選擇 MAC ID，顯示提示資訊
                 displayChannelPlaceholder();
                 return;
             }
             
             try {
-                Utils.showLoading(DOM_CACHE.channelInfo, '載入頻道資訊中...');
+                document.getElementById('channelInfo').innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>載入頻道資訊中...';
                 
                 // 創建 AbortController 來處理超時
                 const controller = new AbortController();
@@ -727,7 +616,7 @@
         
         // 動態生成頻道輸入欄位
         function generateChannelInputs(channels) {
-            const container = DOM_CACHE.deviceModelContainer;
+            const container = document.getElementById('deviceModelContainer');
             container.innerHTML = ''; // 清空容器
             
             // 根據頻道數量決定每行顯示的欄位數
@@ -756,16 +645,15 @@
         
         // 顯示頻道佔位符
         function displayChannelPlaceholder() {
-            const container = DOM_CACHE.deviceModelContainer;
+            const container = document.getElementById('deviceModelContainer');
             container.innerHTML = `
                 <div class="col-12 text-center text-muted py-3">
                     <i class="fas fa-info-circle me-2"></i>請先選擇設備序號 (MAC ID) 以載入頻道配置
                 </div>
             `;
-            DOM_CACHE.channelInfo.innerHTML = '請先選擇 MAC ID 以載入頻道資訊';
+            document.getElementById('channelInfo').innerHTML = '請先選擇 MAC ID 以載入頻道資訊';
             CHANNEL_CONFIG.CURRENT_CHANNELS = [];
         }
-        
         // 更新時間顯示
         function updateTime() {
             const now = new Date();
@@ -778,9 +666,8 @@
                 second: '2-digit',
                 hour12: false
             };
-            const timeString = now.toLocaleString('zh-TW', options);
-            DOM_CACHE.currentTime.textContent = timeString;
-            DOM_CACHE.previewTime.textContent = timeString;
+            document.getElementById('current-time').textContent = now.toLocaleString('zh-TW', options);
+            document.getElementById('previewTime').textContent = now.toLocaleString('zh-TW', options);
         }
 
         // 載入現有設定
@@ -800,7 +687,9 @@
                     if (response.ok) {
                         const data = await response.json();
                         if (data.success) {
-                            Utils.setDeviceInfo(data.settings);
+                            document.getElementById('deviceName').value = data.settings.device_name || '';
+                            document.getElementById('deviceLocation').value = data.settings.device_location || '';
+                            document.getElementById('deviceDescription').value = data.settings.device_description || '';
                             
                             // 取得儲存的 MAC ID
                             const deviceSerial = data.settings.device_serial || '';
@@ -809,7 +698,7 @@
                             if (deviceSerial) {
                                 // 等待 MAC ID 選項列表載入完成後再設定選中值
                                 setTimeout(() => {
-                                    const selectElement = DOM_CACHE.deviceSerial;
+                                    const selectElement = document.getElementById('deviceSerial');
                                     // 檢查該 MAC ID 是否在選項列表中
                                     const option = Array.from(selectElement.options).find(opt => opt.value === deviceSerial);
                                     if (option) {
@@ -853,7 +742,7 @@
                             
                             // 如果已有設定，啟用儀表板按鈕
                             if (data.settings.device_name) {
-                                DOM_CACHE.dashboardBtn.disabled = false;
+                                document.getElementById('dashboardBtn').disabled = false;
                             }
                         }
                     }
@@ -884,13 +773,16 @@
                 }
                 
                 // 載入該設備的設定資訊
-                Utils.setDeviceInfo(targetDevice);
+                document.getElementById('deviceName').value = targetDevice.device_name || '';
+                document.getElementById('deviceLocation').value = targetDevice.device_location || '';
+                document.getElementById('deviceDescription').value = targetDevice.device_description || '';
                 
                 // 等待 MAC ID 列表載入完成後再設定選中的值
                 await loadMacIdList();
                 
                 // 設定選中的 MAC ID
-                DOM_CACHE.deviceSerial.value = macId;
+                const deviceSerialSelect = document.getElementById('deviceSerial');
+                deviceSerialSelect.value = macId;
                 
                 // 載入該 MAC ID 的頻道資訊
                 await loadChannelsForMacId(macId);
@@ -920,7 +812,7 @@
                 
                 // 如果有廠區，啟用儀表板按鈕
                 if (targetDevice.device_name) {
-                    DOM_CACHE.dashboardBtn.disabled = false;
+                    document.getElementById('dashboardBtn').disabled = false;
                 }
                 
                 // 顯示成功訊息
@@ -1673,9 +1565,6 @@
         
         // 頁面載入完成後初始化
         document.addEventListener('DOMContentLoaded', function() {
-            // 初始化 DOM 元素快取
-            DOM_CACHE.init();
-            
             updateTime();
             setInterval(updateTime, 1000);
             
@@ -1717,10 +1606,17 @@
                 
                 // 如果有內容就顯示預覽區域
                 if (deviceName !== '未設定' || deviceSerial !== '未設定') {
-            
-            // 側邊欄收合功能初始化
-            var sidebar = DOM_CACHE.sidebar;
-            var collapseBtn = DOM_CACHE.sidebarCollapseBtn;
+                    document.getElementById('previewSection').style.display = 'block';
+                }
+            }
+        });
+    </script>
+    
+    <script>
+        // 側邊欄收合功能
+        document.addEventListener('DOMContentLoaded', function() {
+            var sidebar = document.getElementById('sidebar');
+            var collapseBtn = document.getElementById('sidebarCollapseBtn');
             var isCollapsed = false;
             
             function toggleSidebarCollapse() {
@@ -1743,20 +1639,6 @@
                 }
             }
             
-            // 支援點擊主畫面自動收合（小螢幕）
-            document.addEventListener('click', function(e) {
-                if(window.innerWidth < 992 && sidebar.classList.contains('show')){
-                    if(!sidebar.contains(e.target) && e.target !== collapseBtn){
-                        sidebar.classList.remove('show');
-                        document.body.style.paddingLeft = '0';
-                    }
-                }
-            });
-            
-            // 頁面載入時自動載入樹梅派配置
-            loadRaspberryPiConfig();
-            }
-            
             // === 樹梅派配置管理函數 ===
             // 載入樹梅派配置
             async function loadRaspberryPiConfig() {
@@ -1771,11 +1653,11 @@
                     if (response.ok) {
                         const data = await response.json();
                         if (data.success && data.config) {
-                            DOM_CACHE.raspberryPiHost.value = data.config.raspberry_pi_host || '192.168.1.100';
-                            DOM_CACHE.raspberryPiPort.value = data.config.raspberry_pi_port || '5000';
+                            document.getElementById('raspberryPiHost').value = data.config.raspberry_pi_host || '192.168.1.100';
+                            document.getElementById('raspberryPiPort').value = data.config.raspberry_pi_port || '5000';
                             
-                            Utils.showSuccess(DOM_CACHE.raspberryPiStatus, 
-                                `已載入配置: ${data.config.raspberry_pi_host}:${data.config.raspberry_pi_port}`);
+                            const status = document.getElementById('raspberryPiStatus');
+                            status.innerHTML = `<i class="fas fa-check-circle text-success"></i> 已載入配置: ${data.config.raspberry_pi_host}:${data.config.raspberry_pi_port}`;
                         }
                     }
                 } catch (error) {
@@ -1786,15 +1668,16 @@
             // 保存樹梅派配置
             async function saveRaspberryPiConfig() {
                 try {
-                    const host = DOM_CACHE.raspberryPiHost.value.trim();
-                    const port = parseInt(DOM_CACHE.raspberryPiPort.value) || 5000;
+                    const host = document.getElementById('raspberryPiHost').value.trim();
+                    const port = parseInt(document.getElementById('raspberryPiPort').value) || 5000;
                     
                     if (!host) {
                         alert('請輸入樹梅派 IP 地址');
                         return;
                     }
                     
-                    Utils.showLoading(DOM_CACHE.raspberryPiStatus, '保存配置中...');
+                    const status = document.getElementById('raspberryPiStatus');
+                    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 保存配置中...';
                     
                     const response = await fetch('/api/dashboard/config', {
                         method: 'POST',
@@ -1810,7 +1693,7 @@
                     const data = await response.json();
                     
                     if (data.success) {
-                        Utils.showSuccess(DOM_CACHE.raspberryPiStatus, `配置已保存: ${host}:${port}`);
+                        status.innerHTML = `<i class="fas fa-check-circle text-success"></i> 配置已保存: ${host}:${port}`;
                         
                         // 立即測試連接
                         setTimeout(() => {
@@ -1818,24 +1701,25 @@
                         }, 1000);
                         
                     } else {
-                        DOM_CACHE.raspberryPiStatus.innerHTML = 
-                            `<i class="fas fa-exclamation-triangle text-warning"></i> 保存失敗: ${data.message}`;
+                        status.innerHTML = `<i class="fas fa-exclamation-triangle text-warning"></i> 保存失敗: ${data.message}`;
                     }
                     
                 } catch (error) {
                     console.error('保存樹梅派配置失敗:', error);
-                    Utils.showError(DOM_CACHE.raspberryPiStatus, `保存失敗: ${error.message}`);
+                    const status = document.getElementById('raspberryPiStatus');
+                    status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 保存失敗: ${error.message}`;
                 }
             }
             
             // 測試樹梅派連接
             async function testRaspberryPiConnection() {
                 try {
-                    Utils.showLoading(DOM_CACHE.raspberryPiStatus, '測試連接中...');
+                    const status = document.getElementById('raspberryPiStatus');
+                    status.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 測試連接中...';
                     
                     // 嘗試訪問樹梅派的 API
-                    const host = DOM_CACHE.raspberryPiHost.value.trim();
-                    const port = parseInt(DOM_CACHE.raspberryPiPort.value) || 5000;
+                    const host = document.getElementById('raspberryPiHost').value.trim();
+                    const port = parseInt(document.getElementById('raspberryPiPort').value) || 5000;
                     
                     const testResponse = await fetch('/api/uart/mac-ids', {
                         method: 'GET',
@@ -1847,27 +1731,25 @@
                     if (testResponse.ok) {
                         const testData = await testResponse.json();
                         if (testData.success) {
-                            Utils.showSuccess(DOM_CACHE.raspberryPiStatus, 
-                                `連接成功！找到 ${testData.mac_ids ? testData.mac_ids.length : 0} 個 MAC ID`);
+                            status.innerHTML = `<i class="fas fa-check-circle text-success"></i> 連接成功！找到 ${testData.mac_ids ? testData.mac_ids.length : 0} 個 MAC ID`;
                             
                             // 自動重新載入 MAC ID 列表
                             loadMacIdList();
                         } else {
-                            DOM_CACHE.raspberryPiStatus.innerHTML = 
-                                `<i class="fas fa-exclamation-triangle text-warning"></i> 連接成功但無數據: ${testData.message}`;
+                            status.innerHTML = `<i class="fas fa-exclamation-triangle text-warning"></i> 連接成功但無數據: ${testData.message}`;
                         }
                     } else {
-                        Utils.showError(DOM_CACHE.raspberryPiStatus, `連接失敗: HTTP ${testResponse.status}`);
+                        status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 連接失敗: HTTP ${testResponse.status}`;
                     }
                     
                 } catch (error) {
                     console.error('測試樹梅派連接失敗:', error);
+                    const status = document.getElementById('raspberryPiStatus');
                     
                     if (error.name === 'TypeError' && error.message.includes('fetch')) {
-                        Utils.showError(DOM_CACHE.raspberryPiStatus, 
-                            `無法連接到 ${DOM_CACHE.raspberryPiHost.value}`);
+                        status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 無法連接到 ${document.getElementById('raspberryPiHost').value}`;
                     } else {
-                        Utils.showError(DOM_CACHE.raspberryPiStatus, `測試失敗: ${error.message}`);
+                        status.innerHTML = `<i class="fas fa-times-circle text-danger"></i> 測試失敗: ${error.message}`;
                     }
                 }
             }
