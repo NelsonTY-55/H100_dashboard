@@ -282,19 +282,6 @@
         <!-- 設備信息列表 -->
         <div class="row mb-4" id="devicesList">
             <!-- 設備卡片將由 JavaScript 動態生成 -->
-            <div class="col-12">
-                <div class="card border-secondary">
-                    <div class="card-body d-flex align-items-center justify-content-center py-3">
-                        <div class="text-muted d-flex align-items-center">
-                            <i class="fas fa-spinner fa-spin fa-lg me-3"></i>
-                            <div>
-                                <span class="fw-bold">正在載入設備信息...</span>
-                                <small class="d-block text-muted">請稍候，系統正在搜尋所有已註冊的設備</small>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
 
 
@@ -721,49 +708,13 @@
         // 顯示無設備訊息
         function showNoDevicesMessage() {
             const devicesList = document.getElementById('devicesList');
-            devicesList.innerHTML = `
-                <div class="col-12">
-                    <div class="card border-warning">
-                        <div class="card-body d-flex align-items-center justify-content-between py-3">
-                            <div class="text-warning d-flex align-items-center">
-                                <i class="fas fa-exclamation-triangle fa-lg me-3"></i>
-                                <div>
-                                    <span class="fw-bold">尚未發現任何設備</span>
-                                    <small class="d-block text-muted">系統中尚未註冊任何設備，或所有設備都處於離線狀態</small>
-                                </div>
-                            </div>
-                            <div class="d-flex gap-2">
-                                <button class="btn btn-sm btn-primary" onclick="refreshDevicesList()">
-                                    <i class="fas fa-sync-alt me-1"></i>重新搜尋
-                                </button>
-                                <a href="/db-setting" class="btn btn-sm btn-success">
-                                    <i class="fas fa-plus me-1"></i>新增設備
-                                </a>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
+            devicesList.innerHTML = '';
         }
         
         // 重新載入設備列表
         function refreshDevicesList() {
             const devicesList = document.getElementById('devicesList');
-            devicesList.innerHTML = `
-                <div class="col-12">
-                    <div class="card border-secondary">
-                        <div class="card-body d-flex align-items-center justify-content-center py-3">
-                            <div class="text-muted d-flex align-items-center">
-                                <i class="fas fa-spinner fa-spin fa-lg me-3"></i>
-                                <div>
-                                    <span class="fw-bold">正在重新載入設備信息...</span>
-                                    <small class="d-block text-muted">請稍候，系統正在搜尋所有已註冊的設備</small>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
+            devicesList.innerHTML = '';
             loadAllDevices();
         }
         

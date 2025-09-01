@@ -1975,8 +1975,16 @@
                 const macId = getElement('macId')?.value;
                 if (macId) return; // 如果已選擇設備，不執行自動載入
                 
+                const startTime = performance.now();
                 const response = await fetch('/api/database/latest-auto');
                 const result = await response.json();
+                const endTime = performance.now();
+                
+                // 監控響應時間
+                const responseTime = endTime - startTime;
+                if (responseTime > 1000) {
+                    console.warn(`API響應時間較慢: ${responseTime.toFixed(2)}ms`);
+                }
                 
                 if (result.success && result.data) {
                     // 可以在這裡更新一些自動載入的數據顯示
@@ -1999,13 +2007,19 @@
         // API 請求輔助函數
         async function apiRequest(url, options = {}) {
             try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10秒超時
+                
                 const response = await fetch(url, {
                     headers: {
                         'Content-Type': 'application/json',
                         ...options.headers
                     },
+                    signal: controller.signal,
                     ...options
                 });
+                
+                clearTimeout(timeoutId);
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -2014,6 +2028,9 @@
                 return await response.json();
             } catch (error) {
                 console.error(`API request failed for ${url}:`, error);
+                if (error.name === 'AbortError') {
+                    console.error('請求超時');
+                }
                 throw error;
             }
         }
@@ -2072,9 +2089,9 @@
                 updateCurrentTime();
                 setInterval(updateCurrentTime, 1000);
                 
-                // 自動載入最新電流數據
+                // 自動載入最新電流數據 (降低頻率從5秒改為30秒)
                 loadLatestCurrentDataAuto();
-                setInterval(loadLatestCurrentDataAuto, 5000);
+                setInterval(loadLatestCurrentDataAuto, 30000);
                 
                 // 初始化選擇器
                 await initializeSelectors();

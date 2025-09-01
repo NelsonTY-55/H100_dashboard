@@ -28,6 +28,7 @@ import sys
 import time
 import threading
 import glob
+from datetime import datetime
 
 # 修復 charset_normalizer 循環導入問題
 import sys
@@ -88,210 +89,8 @@ logging.basicConfig(
 app = Flask(__name__)
 app.secret_key = 'dashboard_secret_key_2025'
 
-# 樹莓派 API 配置 - 支援動態配置
-RASPBERRY_PI_CONFIG = {
-    'host': '192.168.113.239',  # 預設IP地址
-    'port': 5000,
-    'timeout': 10,
-    'auto_discover': True,      # 是否啟用自動發現
-    'backup_hosts': [           # 備用IP地址列表
-        '192.168.1.100',
-        '192.168.50.1', 
-        '10.0.0.100'
-    ]
-}
-
-def get_raspberry_pi_url():
-    """取得樹莓派 API 基礎 URL"""
-    return f"http://{RASPBERRY_PI_CONFIG['host']}:{RASPBERRY_PI_CONFIG['port']}"
-
-def discover_raspberry_pi():
-    """自動發現樹莓派設備"""
-    import socket
-    import threading
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-    
-    discovered_devices = []
-    
-    def check_host(ip):
-        """檢查單個IP地址是否為樹莓派"""
-        try:
-            # 嘗試連接到可能的樹莓派端點
-            test_endpoints = [
-                f"http://{ip}:{RASPBERRY_PI_CONFIG['port']}/api/health",
-                f"http://{ip}:{RASPBERRY_PI_CONFIG['port']}/api/status",
-                f"http://{ip}:{RASPBERRY_PI_CONFIG['port']}/api/uart/status"
-            ]
-            
-            for endpoint in test_endpoints:
-                try:
-                    if requests_available:
-                        response = requests.get(endpoint, timeout=3)
-                        if response.status_code == 200:
-                            data = response.json()
-                            return {
-                                'ip': ip,
-                                'port': RASPBERRY_PI_CONFIG['port'],
-                                'status': 'online',
-                                'endpoint': endpoint,
-                                'response': data
-                            }
-                    else:
-                        # 使用urllib作為備選
-                        req = urllib.request.Request(endpoint)
-                        response = urllib.request.urlopen(req, timeout=3)
-                        if response.getcode() == 200:
-                            return {
-                                'ip': ip,
-                                'port': RASPBERRY_PI_CONFIG['port'],
-                                'status': 'online',
-                                'endpoint': endpoint,
-                                'response': {}
-                            }
-                except:
-                    continue
-            return None
-        except Exception:
-            return None
-    
-    # 獲取當前網路段
-    try:
-        hostname = socket.gethostname()
-        local_ip = socket.gethostbyname(hostname)
-        network_base = '.'.join(local_ip.split('.')[:-1])
-        
-        # 要掃描的IP列表
-        ips_to_scan = []
-        
-        # 添加當前網路段的常見IP
-        for i in range(100, 200):  # 掃描 x.x.x.100-199
-            ips_to_scan.append(f"{network_base}.{i}")
-        
-        # 添加備用主機列表
-        ips_to_scan.extend(RASPBERRY_PI_CONFIG.get('backup_hosts', []))
-        
-        # 添加當前配置的主機
-        if RASPBERRY_PI_CONFIG['host'] not in ips_to_scan:
-            ips_to_scan.insert(0, RASPBERRY_PI_CONFIG['host'])
-        
-        logging.info(f"開始自動發現樹莓派，掃描 {len(ips_to_scan)} 個IP地址...")
-        
-        # 使用線程池並行掃描
-        with ThreadPoolExecutor(max_workers=20) as executor:
-            future_to_ip = {executor.submit(check_host, ip): ip for ip in ips_to_scan}
-            
-            for future in as_completed(future_to_ip, timeout=15):
-                result = future.result()
-                if result:
-                    discovered_devices.append(result)
-                    logging.info(f"發現樹莓派: {result['ip']}")
-        
-        logging.info(f"自動發現完成，找到 {len(discovered_devices)} 個樹莓派設備")
-        return discovered_devices
-        
-    except Exception as e:
-        logging.error(f"自動發現樹莓派時發生錯誤: {e}")
-        return []
-
-def auto_connect_raspberry_pi():
-    """自動連接到可用的樹莓派"""
-    global RASPBERRY_PI_CONFIG
-    
-    if not RASPBERRY_PI_CONFIG.get('auto_discover', True):
-        return test_raspberry_pi_connection()
-    
-    # 首先測試當前配置的主機
-    current_status = test_raspberry_pi_connection()
-    if current_status['connected']:
-        return current_status
-    
-    # 如果當前主機不可用，嘗試自動發現
-    logging.info("當前樹莓派無法連接，開始自動發現...")
-    discovered = discover_raspberry_pi()
-    
-    if discovered:
-        # 選擇第一個可用的設備
-        best_device = discovered[0]
-        old_host = RASPBERRY_PI_CONFIG['host']
-        RASPBERRY_PI_CONFIG['host'] = best_device['ip']
-        
-        logging.info(f"自動切換樹莓派地址：{old_host} -> {best_device['ip']}")
-        
-        return {
-            'connected': True,
-            'message': f'自動發現並連接到樹莓派 {best_device["ip"]}',
-            'auto_discovered': True,
-            'previous_host': old_host,
-            'discovered_devices': len(discovered)
-        }
-    else:
-        return {
-            'connected': False,
-            'message': '無法發現任何可用的樹莓派設備',
-            'auto_discovered': False,
-            'discovered_devices': 0
-        }
-
-def call_raspberry_pi_api(endpoint, method='GET', data=None, timeout=None):
-    """調用樹莓派 API"""
-    if timeout is None:
-        timeout = RASPBERRY_PI_CONFIG['timeout']
-    
-    url = f"{get_raspberry_pi_url()}{endpoint}"
-    
-    # 優先使用 requests，如果不可用則使用 urllib
-    if requests_available:
-        try:
-            if method.upper() == 'GET':
-                response = requests.get(url, timeout=timeout)
-            elif method.upper() == 'POST':
-                response = requests.post(url, json=data, timeout=timeout)
-            else:
-                response = requests.request(method, url, json=data, timeout=timeout)
-            
-            if response.status_code == 200:
-                return True, response.json()
-            else:
-                return False, {'error': f'HTTP {response.status_code}: {response.text}'}
-        
-        except requests.exceptions.Timeout:
-            return False, {'error': f'連接超時 (>{timeout}秒)'}
-        except requests.exceptions.ConnectionError:
-            return False, {'error': '無法連接到樹莓派，請檢查網路連線和樹莓派 IP 地址'}
-        except requests.exceptions.RequestException as e:
-            return False, {'error': f'請求錯誤: {str(e)}'}
-        except Exception as e:
-            return False, {'error': f'未知錯誤: {str(e)}'}
-    
-    else:
-        # 使用 urllib 作為備選方案
-        try:
-            import urllib.request
-            import urllib.error
-            import urllib.parse
-            import json
-            
-            if method.upper() == 'GET':
-                req = urllib.request.Request(url)
-            elif method.upper() == 'POST':
-                req_data = json.dumps(data).encode('utf-8') if data else None
-                req = urllib.request.Request(url, data=req_data)
-                req.add_header('Content-Type', 'application/json')
-            else:
-                req_data = json.dumps(data).encode('utf-8') if data else None
-                req = urllib.request.Request(url, data=req_data, method=method)
-                req.add_header('Content-Type', 'application/json')
-            
-            response = urllib.request.urlopen(req, timeout=timeout)
-            response_text = response.read().decode('utf-8')
-            return True, json.loads(response_text)
-            
-        except urllib.error.HTTPError as e:
-            return False, {'error': f'HTTP {e.code}: {e.reason}'}
-        except urllib.error.URLError as e:
-            return False, {'error': '無法連接到樹莓派，請檢查網路連線和樹莓派 IP 地址'}
-        except Exception as e:
-            return False, {'error': f'未知錯誤: {str(e)}'}
+# 系統模式管理
+current_mode = {'mode': 'idle'}
 
 # 初始化管理器
 config_manager = ConfigManager()
@@ -301,138 +100,42 @@ multi_device_settings_manager = MultiDeviceSettingsManager()
 # 初始化離線模式管理器
 offline_mode_manager = create_offline_mode_manager(config_manager)
 
-# 啟動時自動偵測網路狀態和樹莓派連接
+# 啟動時自動偵測網路狀態
 network_mode = offline_mode_manager.auto_detect_mode()
 logging.info(f"系統啟動模式: {network_mode}")
 
-# 樹莓派連接將在函數定義後進行初始化
-
-# 全域變數暫存模式
-current_mode = {'mode': 'idle'}
-
-# 樹莓派配置管理
-@app.route('/api/raspberry-pi-config', methods=['GET', 'POST'])
-def raspberry_pi_config():
-    """樹莓派連接配置"""
-    global RASPBERRY_PI_CONFIG
-    
-    if request.method == 'GET':
-        return jsonify({
-            'success': True,
-            'config': RASPBERRY_PI_CONFIG,
-            'status': test_raspberry_pi_connection()
-        })
-    
-    elif request.method == 'POST':
-        try:
-            data = request.get_json()
-            if not data:
-                return jsonify({'success': False, 'message': '無效的JSON數據'})
-            
-            # 更新配置
-            if 'host' in data:
-                RASPBERRY_PI_CONFIG['host'] = data['host']
-            if 'port' in data:
-                RASPBERRY_PI_CONFIG['port'] = int(data['port'])
-            if 'timeout' in data:
-                RASPBERRY_PI_CONFIG['timeout'] = int(data['timeout'])
-            if 'auto_discover' in data:
-                RASPBERRY_PI_CONFIG['auto_discover'] = bool(data['auto_discover'])
-            if 'backup_hosts' in data:
-                RASPBERRY_PI_CONFIG['backup_hosts'] = data['backup_hosts']
-            
-            # 測試連接
-            status = test_raspberry_pi_connection()
-            
-            return jsonify({
-                'success': True,
-                'message': '配置已更新',
-                'config': RASPBERRY_PI_CONFIG,
-                'status': status
-            })
-            
-        except Exception as e:
-            return jsonify({
-                'success': False,
-                'message': f'更新配置失敗: {str(e)}'
-            })
-
-@app.route('/api/raspberry-pi-discover', methods=['POST'])
-def raspberry_pi_discover():
-    """手動觸發樹莓派自動發現"""
-    try:
-        discovered = discover_raspberry_pi()
-        return jsonify({
-            'success': True,
-            'discovered_devices': discovered,
-            'device_count': len(discovered),
-            'message': f'發現 {len(discovered)} 個樹莓派設備'
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'自動發現失敗: {str(e)}',
-            'discovered_devices': []
-        })
-
-@app.route('/api/raspberry-pi-auto-connect', methods=['POST'])
-def raspberry_pi_auto_connect():
-    """自動連接到可用的樹莓派"""
-    try:
-        result = auto_connect_raspberry_pi()
-        return jsonify({
-            'success': result['connected'],
-            'result': result
-        })
-    except Exception as e:
-        return jsonify({
-            'success': False,
-            'message': f'自動連接失敗: {str(e)}'
-        })
-
+# 測試連接函數
 def test_raspberry_pi_connection():
-    """測試樹莓派連接"""
+    """測試樹莓派連接（已移除功能）"""
+    return {
+        'connected': False,
+        'message': '樹莓派連接功能已移除',
+        'disabled': True
+    }
+
+# 系統信息和工具函數
+def get_system_info():
+    """獲取系統信息"""
     try:
-        # 嘗試多個端點來測試連接
-        test_endpoints = ['/api/health', '/api/status', '/api/data', '/']
+        cpu_count = psutil.cpu_count() if psutil else 'N/A'
+        memory_info = psutil.virtual_memory() if psutil else None
+        memory_total = f"{memory_info.total / (1024**3):.1f} GB" if memory_info else 'N/A'
+        memory_available = f"{memory_info.available / (1024**3):.1f} GB" if memory_info else 'N/A'
         
-        for endpoint in test_endpoints:
-            success, result = call_raspberry_pi_api(endpoint, timeout=5)
-            if success:
-                return {
-                    'connected': True,
-                    'message': f'連接正常 (通過 {endpoint} 端點)',
-                    'response_time': '< 5秒'
-                }
-        
-        # 如果所有API端點都失敗，嘗試簡單的HTTP連接測試
-        try:
-            import urllib.request
-            url = get_raspberry_pi_url()
-            response = urllib.request.urlopen(url, timeout=5)
-            if response.getcode() in [200, 404, 500]:  # 任何HTTP回應都表示連接成功
-                return {
-                    'connected': True,
-                    'message': '連接正常 (HTTP連接成功)',
-                    'response_time': '< 5秒'
-                }
-        except Exception:
-            pass
-            
         return {
-            'connected': False,
-            'message': '無法連接到樹莓派，請檢查IP地址和網路連線',
-            'response_time': 'N/A'
+            'platform': platform.system(),
+            'platform_release': platform.release(),
+            'architecture': platform.architecture()[0],
+            'hostname': platform.node(),
+            'cpu_count': cpu_count,
+            'memory_total': memory_total,
+            'memory_available': memory_available,
+            'python_version': platform.python_version()
         }
     except Exception as e:
-        return {
-            'connected': False,
-            'message': f'連接測試失敗: {str(e)}',
-            'response_time': 'N/A'
-        }
+        return {'error': f'Unable to retrieve system info: {str(e)}'}
 
-# 本地FTP測試伺服器管理
-class LocalFTPServer:
+def get_uart_data_from_files(mac_id=None, limit=10000):
     def __init__(self):
         self.server_process = None
         self.is_running = False
@@ -536,9 +239,6 @@ class LocalFTPServer:
                 return False, "config.json檔案不存在"
         except Exception as e:
             return False, f"更新設定失敗: {str(e)}"
-
-# 建立全域FTP伺服器實例
-local_ftp_server = LocalFTPServer()
 
 # 工具函數
 def get_system_info():
@@ -985,17 +685,17 @@ def flask_dashboard():
     app_stats = {
         'uart_running': False,
         'uart_data_count': 0,
-        'active_protocol': 'N/A (連接樹莓派)',
-        'offline_mode': not pi_status['connected'],
-        'raspberry_pi_status': pi_status,
-        'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host']
+        'active_protocol': '本地UART',
+        'offline_mode': False,
+        'raspberry_pi_status': {'connected': False},
+        'raspberry_pi_ip': '本地主機'
     }
     
     return render_template('dashboard.html',
                          system_info=system_info,
                          app_stats=app_stats,
-                         raspberry_pi_config=RASPBERRY_PI_CONFIG,
-                         pi_status=pi_status)
+                         raspberry_pi_config={'host': '本地主機', 'port': 5001},
+                         pi_status={'connected': False})
 
 @app.route('/data-analysis')
 def data_analysis():
@@ -1009,18 +709,6 @@ def data_analysis():
     
     return render_template('data_analysis.html')
 
-@app.route('/raspberry-pi-config')
-def raspberry_pi_config_page():
-    """樹莓派連接配置頁面"""
-    logging.info(f'訪問樹莓派配置頁面, remote_addr={request.remote_addr}')
-    
-    # 測試當前連接狀態
-    pi_status = test_raspberry_pi_connection()
-    
-    return render_template('raspberry_pi_config.html',
-                         config=RASPBERRY_PI_CONFIG,
-                         status=pi_status)
-
 @app.route('/11')
 def dashboard_11():
     """儀表板總覽頁面 (11.html)"""
@@ -1029,57 +717,42 @@ def dashboard_11():
 
 @app.route('/api/dashboard/stats')
 def dashboard_stats():
-    """API: 獲取 Dashboard 統計資料 (從樹莓派)"""
+    """API: 獲取 Dashboard 統計資料"""
     try:
-        # 嘗試從樹莓派獲取統計資料
-        success, pi_data = call_raspberry_pi_api('/api/dashboard/stats')
+        # 本地系統資源資訊
+        system_stats = get_system_stats()
         
-        if success:
-            # 成功從樹莓派獲取數據
-            pi_data['source'] = '樹莓派'
-            pi_data['raspberry_pi_ip'] = RASPBERRY_PI_CONFIG['host']
-            pi_data['connection_status'] = '已連接'
-            return jsonify(pi_data)
-        else:
-            # 無法連接樹莓派，使用本地數據
-            logging.warning(f"無法從樹莓派獲取數據: {pi_data.get('error', '未知錯誤')}")
-            
-            # 本地系統資源資訊
-            system_stats = get_system_stats()
-            
-            # 應用程式統計 (本地)
-            app_stats = {
-                'uart_running': False,
-                'uart_data_count': 0,
-                'active_protocol': 'N/A (離線模式)',
-                'offline_mode': True,
-                'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        # 應用程式統計 (本地)
+        app_stats = {
+            'uart_running': False,
+            'uart_data_count': 0,
+            'active_protocol': 'N/A (離線模式)',
+            'offline_mode': True,
+            'current_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        }
+        
+        # 載入設備設定 (本地)
+        try:
+            device_settings = device_settings_manager.load_settings()
+        except Exception as device_error:
+            logging.error(f"載入設備設定時發生錯誤: {device_error}")
+            device_settings = {
+                'device_name': '未設定設備',
+                'device_location': '',
+                'device_model': '',
+                'device_serial': '',
+                'device_description': ''
             }
-            
-            # 載入設備設定 (本地)
-            try:
-                device_settings = device_settings_manager.load_settings()
-            except Exception as device_error:
-                logging.error(f"載入設備設定時發生錯誤: {device_error}")
-                device_settings = {
-                    'device_name': '未設定設備',
-                    'device_location': '',
-                    'device_model': '',
-                    'device_serial': '',
-                    'device_description': ''
-                }
-            
-            return jsonify({
-                'success': True,
-                'system': system_stats,
-                'application': app_stats,
-                'device_settings': device_settings,
-                'timestamp': datetime.now().isoformat(),
-                'source': '本地 (離線模式)',
-                'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host'],
-                'connection_status': '離線',
-                'connection_error': pi_data.get('error', '連接失敗')
-            })
+        
+        return jsonify({
+            'success': True,
+            'system': system_stats,
+            'application': app_stats,
+            'device_settings': device_settings,
+            'timestamp': datetime.now().isoformat(),
+            'source': '本地',
+            'connection_status': '本地模式'
+        })
         
     except Exception as e:
         logging.error(f"獲取 Dashboard 統計資料時發生錯誤: {str(e)}")
@@ -1108,7 +781,7 @@ def dashboard_stats():
                 'device_description': ''
             },
             'source': '錯誤',
-            'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host'],
+            'raspberry_pi_ip': '本地主機',
             'connection_status': '錯誤'
         })
 
@@ -1138,120 +811,98 @@ def dashboard_device_settings():
 
 @app.route('/api/dashboard/chart-data')
 def dashboard_chart_data():
-    """API: 獲取圖表數據 (從樹莓派)"""
+    """API: 獲取圖表數據 (本地模式)"""
     try:
         # 獲取查詢參數
         limit = request.args.get('limit', 50000, type=int)
         channel = request.args.get('channel', None, type=int)
         mac_id = request.args.get('mac_id', None)
         
-        # 構建樹莓派 API 查詢參數
-        params = f"?limit={limit}"
-        if channel is not None:
-            params += f"&channel={channel}"
-        if mac_id is not None:
-            params += f"&mac_id={mac_id}"
+        # 記錄 API 請求
+        logging.info(f"圖表數據請求 (本地模式) - limit={limit}, channel={channel}, mac_id={mac_id}")
         
-        # 嘗試從樹莓派獲取圖表數據
-        success, pi_data = call_raspberry_pi_api(f'/api/dashboard/chart-data{params}')
+        # 直接從本地CSV文件讀取數據
+        raw_data = []
         
-        if success:
-            # 成功從樹莓派獲取數據
-            pi_data['source'] = '樹莓派'
-            pi_data['raspberry_pi_ip'] = RASPBERRY_PI_CONFIG['host']
-            logging.info(f"從樹莓派獲取圖表數據成功 - {len(pi_data.get('data', []))} 個通道")
-            return jsonify(pi_data)
-        else:
-            # 無法連接樹莓派，使用本地數據
-            logging.warning(f"無法從樹莓派獲取圖表數據: {pi_data.get('error', '未知錯誤')}")
-            
-            # 記錄 API 請求
-            logging.info(f"圖表數據請求 (本地模式) - limit={limit}, channel={channel}, mac_id={mac_id}")
-            
-            # 直接從本地CSV文件讀取數據
-            raw_data = []
-            
-            try:
-                file_data = get_uart_data_from_files(mac_id, limit)
-                if file_data.get('success'):
-                    # 轉換文件格式到 raw_data 格式
-                    for channel_data in file_data.get('data', []):
-                        for data_point in channel_data.get('data', []):
-                            raw_data.append({
-                                'timestamp': data_point.get('timestamp'),
-                                'mac_id': channel_data.get('mac_id', 'N/A'),
-                                'channel': channel_data.get('channel', 0),
-                                'parameter': data_point.get('parameter'),
-                                'unit': channel_data.get('unit', 'N/A')
-                            })
-                    logging.debug(f"從本地CSV文件讀取到 {len(raw_data)} 筆數據")
-                else:
-                    logging.warning(f"從本地CSV文件讀取數據失敗: {file_data.get('error', '未知錯誤')}")
-            except Exception as e:
-                logging.error(f"從本地CSV文件讀取數據時發生錯誤: {e}")
-            
-            # 如果沒有數據，返回空結果
-            if len(raw_data) == 0:
-                return jsonify({
-                    'success': True,
-                    'data': [],
-                    'total_channels': 0,
-                    'filtered_by_mac_id': mac_id,
-                    'data_source': '本地CSV文件 (無數據)',
-                    'source': '本地 (離線模式)',
-                    'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host'],
-                    'connection_error': pi_data.get('error', '連接失敗'),
-                    'timestamp': datetime.now().isoformat()
-                })
-            
-            # 處理本地數據 (簡化版本)
-            chart_data = {}
-            
-            # 限制數據量
-            if len(raw_data) > limit:
-                raw_data = raw_data[-limit:]
-            
-            # 處理數據
-            for entry in raw_data:
-                entry_channel = entry.get('channel', 0)
-                entry_mac_id = entry.get('mac_id', 'N/A')
-                
-                # 過濾條件
-                if channel is not None and entry_channel != channel:
-                    continue
-                if mac_id is not None and entry_mac_id != mac_id:
-                    continue
-                
-                # 建立通道數據結構
-                if entry_channel not in chart_data:
-                    chart_data[entry_channel] = {
-                        'channel': entry_channel,
-                        'unit': entry.get('unit', 'N/A'),
-                        'mac_id': entry_mac_id,
-                        'data': []
-                    }
-                
-                # 添加數據點
-                chart_data[entry_channel]['data'].append({
-                    'timestamp': entry.get('timestamp'),
-                    'parameter': entry.get('parameter'),
-                    'mac_id': entry_mac_id
-                })
-            
-            # 轉換為列表格式
-            result_data = list(chart_data.values())
-            
+        try:
+            file_data = get_uart_data_from_files(mac_id, limit)
+            if file_data.get('success'):
+                # 轉換文件格式到 raw_data 格式
+                for channel_data in file_data.get('data', []):
+                    for data_point in channel_data.get('data', []):
+                        raw_data.append({
+                            'timestamp': data_point.get('timestamp'),
+                            'mac_id': channel_data.get('mac_id', 'N/A'),
+                            'channel': channel_data.get('channel', 0),
+                            'parameter': data_point.get('parameter'),
+                            'unit': channel_data.get('unit', 'N/A')
+                        })
+                logging.debug(f"從本地CSV文件讀取到 {len(raw_data)} 筆數據")
+            else:
+                logging.warning(f"從本地CSV文件讀取數據失敗: {file_data.get('error', '未知錯誤')}")
+        except Exception as e:
+            logging.error(f"從本地CSV文件讀取數據時發生錯誤: {e}")
+        
+        # 如果沒有數據，返回空結果
+        if len(raw_data) == 0:
             return jsonify({
                 'success': True,
-                'data': result_data,
-                'total_channels': len(result_data),
+                'data': [],
+                'total_channels': 0,
                 'filtered_by_mac_id': mac_id,
-                'data_source': '本地CSV文件',
-                'source': '本地 (離線模式)',
-                'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host'],
-                'connection_error': pi_data.get('error', '連接失敗'),
+                'data_source': '本地CSV文件 (無數據)',
+                'source': '本地主機',
+                'raspberry_pi_ip': '本地主機',
                 'timestamp': datetime.now().isoformat()
             })
+        
+        # 處理本地數據 (簡化版本)
+        chart_data = {}
+        
+        # 限制數據量
+        if len(raw_data) > limit:
+            raw_data = raw_data[-limit:]
+        
+        # 處理數據
+        for entry in raw_data:
+            entry_channel = entry.get('channel', 0)
+            entry_mac_id = entry.get('mac_id', 'N/A')
+            
+            # 過濾條件
+            if channel is not None and entry_channel != channel:
+                continue
+            if mac_id is not None and entry_mac_id != mac_id:
+                continue
+            
+            # 建立通道數據結構
+            if entry_channel not in chart_data:
+                chart_data[entry_channel] = {
+                    'channel': entry_channel,
+                    'unit': entry.get('unit', 'N/A'),
+                    'mac_id': entry_mac_id,
+                    'data': []
+                }
+            
+            # 添加數據點
+            chart_data[entry_channel]['data'].append({
+                'timestamp': entry.get('timestamp'),
+                'parameter': entry.get('parameter'),
+                'mac_id': entry_mac_id
+            })
+        
+        # 轉換為列表格式
+        result_data = list(chart_data.values())
+        
+        return jsonify({
+            'success': True,
+            'data': result_data,
+            'total_channels': len(result_data),
+            'filtered_by_mac_id': mac_id,
+            'data_source': '本地CSV文件',
+            'source': '本地主機',
+            'raspberry_pi_ip': '本地主機',
+            'timestamp': datetime.now().isoformat()
+        })
         
     except Exception as e:
         logging.error(f"獲取圖表數據時發生錯誤: {str(e)}")
@@ -1261,36 +912,49 @@ def dashboard_chart_data():
             'data': [],
             'total_channels': 0,
             'source': '錯誤',
-            'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host'],
+            'raspberry_pi_ip': '本地主機',
             'timestamp': datetime.now().isoformat()
         })
         
 @app.route('/api/dashboard/devices')
 def dashboard_devices():
-    """API: 獲取所有設備列表 (從樹莓派)"""
+    """API: 獲取所有設備列表"""
     try:
-        # 嘗試從樹莓派獲取設備列表
-        success, pi_data = call_raspberry_pi_api('/api/dashboard/devices')
+        # 從多設備管理器載入所有設備
+        all_devices_dict = multi_device_settings_manager.load_all_devices()
+        logging.info(f"獲取設備列表，共 {len(all_devices_dict)} 台設備")
         
-        if success:
-            # 成功從樹莓派獲取數據
-            pi_data['source'] = '樹莓派'
-            pi_data['raspberry_pi_ip'] = RASPBERRY_PI_CONFIG['host']
-            return jsonify(pi_data)
-        else:
-            # 無法連接樹莓派，返回空設備列表
-            logging.warning(f"無法從樹莓派獲取設備列表: {pi_data.get('error', '未知錯誤')}")
-            
-            return jsonify({
-                'success': True,
-                'devices': [],
-                'total_devices': 0,
-                'source': '本地 (離線模式)',
-                'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host'],
-                'connection_error': pi_data.get('error', '連接失敗'),
-                'message': '無法連接到樹莓派，請檢查網路連線',
-                'timestamp': datetime.now().isoformat()
-            })
+        # 轉換為列表格式並加入額外資訊
+        devices_list = []
+        for mac_id, device_info in all_devices_dict.items():
+            device_data = {
+                'mac_id': mac_id,
+                'device_name': device_info.get('device_name', ''),
+                'device_location': device_info.get('device_location', ''),
+                'device_model': device_info.get('device_model', ''),
+                'device_type': device_info.get('device_type', ''),
+                'factory_area': device_info.get('factory_area', ''),
+                'floor_level': device_info.get('floor_level', ''),
+                'status': device_info.get('status', 'active'),
+                'installation_date': device_info.get('installation_date', ''),
+                'last_maintenance': device_info.get('last_maintenance', ''),
+                'created_at': device_info.get('created_at'),
+                'updated_at': device_info.get('updated_at'),
+                'is_active': device_info.get('status', 'active') == 'active',
+                'last_data_time': None,  # 可以後續加入實際的資料時間
+                'data_count': 0  # 可以後續加入實際的資料數量
+            }
+            devices_list.append(device_data)
+        
+        return jsonify({
+            'success': True,
+            'devices': devices_list,
+            'total_devices': len(devices_list),
+            'source': '本地資料庫',
+            'raspberry_pi_ip': '本地主機',
+            'message': f'已載入 {len(devices_list)} 台設備',
+            'timestamp': datetime.now().isoformat()
+        })
         
     except Exception as e:
         logging.error(f"獲取設備列表時發生錯誤: {str(e)}")
@@ -1299,7 +963,7 @@ def dashboard_devices():
             'message': f'獲取設備列表失敗: {str(e)}',
             'devices': [],
             'source': '錯誤',
-            'raspberry_pi_ip': RASPBERRY_PI_CONFIG['host']
+            'raspberry_pi_ip': '本地主機'
         })
 
 @app.route('/api/dashboard/overview')
@@ -2532,30 +2196,6 @@ def ftp_status():
     except Exception as e:
         return jsonify({'success': False, 'message': f'獲取FTP狀態失敗: {str(e)}'})
 
-@app.route('/api/ftp/local/start', methods=['POST'])
-def local_ftp_start():
-    """API: 啟動本地FTP測試伺服器"""
-    success, message = local_ftp_server.start_server()
-    return jsonify({'success': success, 'message': message})
-
-@app.route('/api/ftp/local/stop', methods=['POST'])
-def local_ftp_stop():
-    """API: 停止本地FTP測試伺服器"""
-    success, message = local_ftp_server.stop_server()
-    return jsonify({'success': success, 'message': message})
-
-@app.route('/api/ftp/local/status')
-def local_ftp_status():
-    """API: 獲取本地FTP測試伺服器狀態"""
-    status = local_ftp_server.get_status()
-    return jsonify(status)
-
-@app.route('/api/ftp/local/update-config', methods=['POST'])
-def local_ftp_update_config():
-    """API: 更新config.json為本地FTP測試伺服器設定"""
-    success, message = local_ftp_server.update_config_for_test()
-    return jsonify({'success': success, 'message': message})
-
 @app.route('/api/ftp/test-connection', methods=['POST'])
 def ftp_test_connection():
     logging.info(f'API: 測試FTP連接, remote_addr={request.remote_addr}, data={request.get_json(silent=True)}')
@@ -3331,6 +2971,32 @@ def get_database_latest_data():
             'data': []
         })
 
+@app.route('/api/database/latest-auto')
+def get_database_latest_auto():
+    """自動載入最新資料 (輕量級)"""
+    if not DATABASE_AVAILABLE or not db_manager:
+        return jsonify({
+            'success': False,
+            'message': '資料庫功能未啟用',
+            'data': None
+        })
+    
+    try:
+        # 只獲取最新的一筆資料，減少數據庫負載
+        latest_data = db_manager.get_latest_data(filters=None, limit=1)
+        return jsonify({
+            'success': True,
+            'data': latest_data[0] if latest_data else None,
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logging.error(f"自動載入最新資料失敗: {e}")
+        return jsonify({
+            'success': False,
+            'message': f'自動載入最新資料失敗: {str(e)}',
+            'data': None
+        })
+
 @app.route('/api/database/register-device', methods=['POST'])
 def register_device():
     """註冊設備資訊"""
@@ -3415,27 +3081,8 @@ def internal_error(error):
     }), 500
 
 def initialize_raspberry_pi_connection():
-    """初始化樹莓派連接"""
-    try:
-        # 嘗試自動連接樹莓派
-        if RASPBERRY_PI_CONFIG.get('auto_discover', True):
-            try:
-                pi_connection = auto_connect_raspberry_pi()
-                if pi_connection['connected']:
-                    logging.info(f"樹莓派連接成功: {RASPBERRY_PI_CONFIG['host']}")
-                else:
-                    logging.warning(f"樹莓派連接失敗: {pi_connection.get('message', '未知錯誤')}")
-            except Exception as e:
-                logging.error(f"樹莓派自動連接時發生錯誤: {e}")
-        else:
-            # 只測試當前配置的連接
-            pi_status = test_raspberry_pi_connection()
-            if pi_status['connected']:
-                logging.info(f"樹莓派連接正常: {RASPBERRY_PI_CONFIG['host']}")
-            else:
-                logging.warning(f"樹莓派連接異常: {pi_status.get('message', '未知錯誤')}")
-    except Exception as e:
-        logging.error(f"初始化樹莓派連接時發生錯誤: {e}")
+    """樹莓派連接初始化（已禁用）"""
+    print("樹莓派連接功能已移除")
 
 if __name__ == '__main__':
     try:

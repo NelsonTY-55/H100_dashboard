@@ -1,9 +1,1 @@
-{
-  "device_name": "DB測試設備",
-  "device_location": "測試環境",
-  "device_model": "Test Model v2",
-  "device_serial": "TEST-MAC-001",
-  "device_description": "這是一個用於測試的設備設定",
-  "created_at": "2025-08-01T10:39:03.420650",
-  "updated_at": "2025-08-01T10:39:03.420650"
-}
+{}
