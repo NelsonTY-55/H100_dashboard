@@ -1,3 +1,94 @@
+# 修復 charset_normalizer 循環導入問題
+import sys
+import importlib
+
+def fix_charset_normalizer():
+    """修復 charset_normalizer 循環導入問題的函數"""
+    try:
+        # 清理所有相關的模組緩存
+        modules_to_clear = [
+            'charset_normalizer',
+            'charset_normalizer.md__mypyc',
+            'charset_normalizer.md',
+            'charset_normalizer.constant',
+            'charset_normalizer.from_dict',
+            'charset_normalizer.legacy',
+            'charset_normalizer.utils'
+        ]
+        
+        for module in modules_to_clear:
+            if module in sys.modules:
+                try:
+                    del sys.modules[module]
+                except:
+                    pass
+        
+        # 重新導入 charset_normalizer
+        import charset_normalizer
+        
+        # 確保所有必要的屬性都存在
+        required_attrs = ['md__mypyc', 'from_dict', 'normalize']
+        for attr in required_attrs:
+            if not hasattr(charset_normalizer, attr):
+                if attr == 'md__mypyc':
+                    charset_normalizer.md__mypyc = None
+                elif attr == 'from_dict':
+                    charset_normalizer.from_dict = lambda x: x
+                elif attr == 'normalize':
+                    charset_normalizer.normalize = lambda x: x
+        
+        return True, "charset_normalizer 修復成功"
+        
+    except Exception as e:
+        # 如果修復失敗，嘗試重新安裝
+        try:
+            import subprocess
+            result = subprocess.run([sys.executable, '-m', 'pip', 'install', '--force-reinstall', 'charset-normalizer'], 
+                                  capture_output=True, text=True)
+            if result.returncode == 0:
+                import charset_normalizer
+                if not hasattr(charset_normalizer, 'md__mypyc'):
+                    charset_normalizer.md__mypyc = None
+                return True, "charset_normalizer 重新安裝並修復成功"
+            else:
+                return False, f"重新安裝失敗: {result.stderr}"
+        except Exception as reinstall_error:
+            return False, f"修復和重新安裝都失敗: {str(e)}, {str(reinstall_error)}"
+
+# 執行修復
+fix_success, fix_message = fix_charset_normalizer()
+if fix_success:
+    print(f"✅ {fix_message}")
+else:
+    print(f"⚠️  {fix_message}")
+
+try:
+    # 嘗試清理 charset_normalizer 模組的緩存
+    if 'charset_normalizer' in sys.modules:
+        del sys.modules['charset_normalizer']
+    if 'charset_normalizer.md__mypyc' in sys.modules:
+        del sys.modules['charset_normalizer.md__mypyc']
+    
+    # 重新導入 charset_normalizer
+    import charset_normalizer
+    
+    # 如果沒有 md__mypyc 屬性，手動添加一個空的屬性避免錯誤
+    if not hasattr(charset_normalizer, 'md__mypyc'):
+        charset_normalizer.md__mypyc = None
+        
+except Exception as charset_error:
+    print(f"修復 charset_normalizer 時發生錯誤: {charset_error}")
+    # 如果修復失敗，嘗試強制重新安裝
+    try:
+        import subprocess
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--force-reinstall', 'charset-normalizer'], 
+                      capture_output=True, text=True)
+        import charset_normalizer
+        if not hasattr(charset_normalizer, 'md__mypyc'):
+            charset_normalizer.md__mypyc = None
+    except:
+        pass
+
 from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, session, make_response, send_from_directory
 from config_manager import ConfigManager
 from uart_integrated import uart_reader, protocol_manager
@@ -10,7 +101,6 @@ import os
 import time
 import threading
 import subprocess
-import sys
 import logging
 import platform
 from datetime import datetime
@@ -18,11 +108,47 @@ from logging.handlers import TimedRotatingFileHandler
 
 # 嘗試導入 requests，用於傳送資料到 Dashboard 服務
 try:
+    # 在導入 requests 之前先修復 charset_normalizer
+    try:
+        import charset_normalizer
+        if not hasattr(charset_normalizer, 'md__mypyc'):
+            charset_normalizer.md__mypyc = None
+    except:
+        pass
+    
+    # 嘗試清理可能有問題的模組緩存
+    import sys
+    modules_to_clear = [
+        'charset_normalizer.md__mypyc',
+        'charset_normalizer.md',
+        'charset_normalizer.constant'
+    ]
+    for module in modules_to_clear:
+        if module in sys.modules:
+            try:
+                del sys.modules[module]
+            except:
+                pass
+    
     import requests
     REQUESTS_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     REQUESTS_AVAILABLE = False
-    logging.warning("requests 模組未安裝，將無法傳送資料到 Dashboard 服務")
+    logging.warning(f"requests 模組未安裝，將無法傳送資料到 Dashboard 服務: {e}")
+except Exception as e:
+    REQUESTS_AVAILABLE = False
+    logging.warning(f"導入 requests 時發生錯誤: {e}")
+    # 嘗試強制重新安裝 charset-normalizer 和 requests
+    try:
+        import subprocess
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--force-reinstall', 'charset-normalizer', 'requests'], 
+                      capture_output=True, text=True)
+        import requests
+        REQUESTS_AVAILABLE = True
+        logging.info("成功重新安裝並導入 requests 模組")
+    except Exception as reinstall_error:
+        logging.error(f"重新安裝 requests 失敗: {reinstall_error}")
+        REQUESTS_AVAILABLE = False
 
 # 嘗試導入 Flask-MonitoringDashboard，如果沒有安裝則跳過
 try:
@@ -32,8 +158,14 @@ except ImportError:
     DASHBOARD_AVAILABLE = False
     print("Flask-MonitoringDashboard 未安裝，可以執行 'pip install flask-monitoringdashboard' 來安裝")
 
-# 指定 logs 絕對路徑（不要放桌面）
-log_dir = "/home/pi/my_fastapi_app/logs"
+# 根據系統類型設定 logs 路徑
+if platform.system() == 'Windows':
+    # Windows 系統使用當前目錄下的 logs 資料夾
+    log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
+else:
+    # Linux/Pi 系統使用原來的路徑
+    log_dir = "/home/pi/my_fastapi_app/logs"
+
 os.makedirs(log_dir, exist_ok=True)  # 自動建立資料夾（如果沒有的話）
 
 # 建立自訂的日誌處理器，支援按日期自動切換
