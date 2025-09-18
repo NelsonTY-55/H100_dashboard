@@ -51,6 +51,21 @@
         .loading-spinner {
             display: none;
         }
+        .loading-spinner-test {
+            display: none;
+        }
+        #btnTestFTP {
+            background: linear-gradient(135deg, #17a2b8 0%, #138496 100%);
+            border: none;
+            padding: 0.75rem 2rem;
+        }
+        #btnTestFTP:hover {
+            background: linear-gradient(135deg, #138496 0%, #117a8b 100%);
+        }
+        #btnTestFTP:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -64,6 +79,14 @@
                         {{ protocol }} 設定
                     </h1>
                     <p class="lead mb-0">{{ description }}</p>
+                    {% if protocol == 'FTP' %}
+                    <div class="mt-3">
+                        <small class="text-light">
+                            <i class="fas fa-lightbulb me-1"></i>
+                            提示：「保存並測試」按鈕會自動保存當前設定後進行連接測試
+                        </small>
+                    </div>
+                    {% endif %}
                 </div>
 
                 <!-- 設定表單 -->
@@ -144,12 +167,27 @@
                         {% endfor %}
                     </div>
 
+                    <!-- 狀態提示區域 -->
+                    <div id="autoSaveStatus" class="alert alert-info mt-3" style="display: none;">
+                        <i class="fas fa-info-circle me-2"></i>
+                        <span id="autoSaveMessage"></span>
+                    </div>
+
                     <!-- 按鈕區域 -->
                     <div class="text-center mt-4">
                         <button type="button" class="btn btn-secondary btn-lg me-3" onclick="goBack()">
                             <i class="fas fa-arrow-left me-2"></i>
                             返回
                         </button>
+                        {% if protocol == 'FTP' %}
+                        <button type="button" class="btn btn-info btn-lg me-3" id="btnTestFTP" onclick="testFTPConnection()" title="自動保存配置並測試連接">
+                            <span class="loading-spinner-test me-2" style="display: none;">
+                                <i class="fas fa-spinner fa-spin"></i>
+                            </span>
+                            <i class="fas fa-plug me-2"></i>
+                            保存並測試
+                        </button>
+                        {% endif %}
                         <button type="submit" class="btn btn-save btn-lg" id="btnSave">
                             <span class="loading-spinner me-2">
                                 <i class="fas fa-spinner fa-spin"></i>
@@ -192,6 +230,29 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
                     <button type="button" class="btn btn-primary" onclick="window.location.href='/?updated=' + new Date().getTime() + '&protocol=' + encodeURIComponent('{{ protocol }}')">立即前往首頁</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- FTP 測試結果 Modal -->
+    <div class="modal fade" id="testResultModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header" id="testResultHeader">
+                    <h5 class="modal-title" id="testResultTitle">
+                        <i class="fas fa-plug me-2"></i>
+                        FTP 連接測試結果
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="testResultContent">
+                        <!-- 測試結果內容將在這裡動態顯示 -->
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">關閉</button>
                 </div>
             </div>
         </div>
@@ -323,6 +384,172 @@
 
         function goToSummary() {
             window.location.href = '/config-summary';
+        }
+
+        // FTP 連接測試功能
+        function testFTPConnection() {
+            const btnTest = document.getElementById('btnTestFTP');
+            const loadingSpinner = document.querySelector('.loading-spinner-test');
+            const statusDiv = document.getElementById('autoSaveStatus');
+            const statusMessage = document.getElementById('autoSaveMessage');
+            
+            // 顯示載入狀態
+            btnTest.disabled = true;
+            loadingSpinner.style.display = 'inline-block';
+            
+            // 顯示狀態提示
+            statusDiv.className = 'alert alert-info mt-3';
+            statusDiv.style.display = 'block';
+            statusMessage.textContent = '正在自動保存配置...';
+            
+            // 先自動保存當前配置，然後再進行測試
+            const form = document.getElementById('protocolConfigForm');
+            const formData = new FormData(form);
+            
+            // 第一步：保存配置
+            fetch(`/save-protocol-config/{{ protocol }}`, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(saveResult => {
+                if (saveResult.success) {
+                    // 更新狀態提示
+                    statusMessage.textContent = '配置已保存，正在測試連接...';
+                    
+                    // 第二步：進行測試
+                    return fetch(`/test-ftp-connection/{{ protocol }}`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                    });
+                } else {
+                    throw new Error('配置保存失敗: ' + saveResult.message);
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                // 隱藏載入狀態
+                btnTest.disabled = false;
+                loadingSpinner.style.display = 'none';
+                
+                // 更新狀態提示
+                if (data.success) {
+                    statusDiv.className = 'alert alert-success mt-3';
+                    statusMessage.textContent = '配置已自動保存並測試完成！';
+                } else {
+                    statusDiv.className = 'alert alert-warning mt-3';
+                    statusMessage.textContent = '配置已保存，但測試失敗。請檢查設定。';
+                }
+                
+                // 3秒後隱藏狀態提示
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 3000);
+                
+                // 添加自動保存的提示信息
+                if (data.message && !data.message.includes('(已自動保存配置)')) {
+                    data.message = data.message + ' (已自動保存配置)';
+                }
+                
+                // 顯示測試結果
+                showTestResult(data);
+            })
+            .catch(error => {
+                // 隱藏載入狀態
+                btnTest.disabled = false;
+                loadingSpinner.style.display = 'none';
+                
+                // 更新狀態提示為錯誤狀態
+                statusDiv.className = 'alert alert-danger mt-3';
+                statusMessage.textContent = '操作失敗: ' + error.message;
+                
+                // 5秒後隱藏狀態提示
+                setTimeout(() => {
+                    statusDiv.style.display = 'none';
+                }, 5000);
+                
+                // 顯示錯誤訊息
+                showTestResult({
+                    success: false,
+                    message: '測試失敗: ' + error.message
+                });
+            });
+        }
+
+        // 顯示測試結果 Modal
+        function showTestResult(data) {
+            const modal = new bootstrap.Modal(document.getElementById('testResultModal'));
+            const header = document.getElementById('testResultHeader');
+            const content = document.getElementById('testResultContent');
+            
+            // 設定標題和樣式
+            if (data.success) {
+                header.className = 'modal-header bg-success text-white';
+            } else {
+                header.className = 'modal-header bg-danger text-white';
+            }
+            
+            // 構建結果內容
+            let html = `
+                <div class="alert ${data.success ? 'alert-success' : 'alert-danger'}" role="alert">
+                    <h6><i class="fas ${data.success ? 'fa-check-circle' : 'fa-exclamation-triangle'} me-2"></i>
+                        ${data.success ? '測試成功' : '測試失敗'}
+                    </h6>
+                    <p class="mb-0">${data.message}</p>
+                </div>
+            `;
+            
+            // 如果有測試詳情，顯示更多資訊
+            if (data.test_details) {
+                html += `
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-info-circle me-2"></i>連接資訊</h6>
+                        </div>
+                        <div class="card-body">
+                            <ul class="list-unstyled mb-0">
+                                <li><strong>主機地址:</strong> ${data.test_details.host}</li>
+                                <li><strong>使用者名稱:</strong> ${data.test_details.username || '匿名'}</li>
+                                <li><strong>SSL 加密:</strong> ${data.test_details.ssl_enabled ? '啟用' : '停用'}</li>
+                                <li><strong>TLS 加密:</strong> ${data.test_details.tls_enabled ? '啟用' : '停用'}</li>
+                            </ul>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 如果有輸出資訊，顯示詳細結果
+            if (data.output) {
+                html += `
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-terminal me-2"></i>測試詳細結果</h6>
+                        </div>
+                        <div class="card-body">
+                            <pre style="background-color: #f8f9fa; padding: 10px; border-radius: 5px; font-size: 0.875rem; max-height: 200px; overflow-y: auto;">${data.output}</pre>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            // 如果有錯誤輸出，顯示錯誤資訊
+            if (data.error_output) {
+                html += `
+                    <div class="card mt-3">
+                        <div class="card-header">
+                            <h6 class="mb-0"><i class="fas fa-exclamation-triangle me-2"></i>錯誤資訊</h6>
+                        </div>
+                        <div class="card-body">
+                            <pre style="background-color: #fff5f5; padding: 10px; border-radius: 5px; font-size: 0.875rem; max-height: 200px; overflow-y: auto; color: #dc3545;">${data.error_output}</pre>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            content.innerHTML = html;
+            modal.show();
         }
 
         // 鍵盤快捷鍵

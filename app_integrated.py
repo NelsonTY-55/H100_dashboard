@@ -1577,6 +1577,121 @@ def save_protocol_config(protocol):
         logging.exception(f'儲存協定設定失敗: {str(e)}')
         return jsonify({'success': False, 'message': f'處理設定時發生錯誤: {str(e)}'})
 
+# FTP 連接測試路由
+@app.route('/test-ftp-connection/<protocol>', methods=['POST'])
+def test_ftp_connection(protocol):
+    """測試 FTP 連接"""
+    logging.info(f'測試 FTP 連接: {protocol}, remote_addr={request.remote_addr}')
+    
+    if protocol.upper() != 'FTP':
+        return jsonify({'success': False, 'message': '此功能僅支援 FTP 協定'})
+    
+    try:
+        # 獲取當前 FTP 設定
+        config = config_manager.get_protocol_config('FTP')
+        
+        if not config:
+            return jsonify({'success': False, 'message': '找不到 FTP 設定，請先儲存設定後再測試'})
+        
+        # 檢查必要參數
+        host = config.get('host', '')
+        port = config.get('port', 21)
+        username = config.get('username', '')
+        password = config.get('password', '')
+        
+        if not host:
+            return jsonify({'success': False, 'message': '主機地址不能為空'})
+        
+        # 建構 FTP 地址
+        if config.get('ssl_enabled', False) or config.get('tls_enabled', False):
+            ftp_address = f"ftps://{host}:{port}"
+        else:
+            ftp_address = f"{host}:{port}"
+        
+        # 使用 ftpcheck.py 進行測試
+        import subprocess
+        import os
+        
+        # 取得 ftpcheck.py 的完整路徑
+        ftpcheck_path = os.path.join(os.path.dirname(__file__), 'ftpCheck.py')
+        
+        if not os.path.exists(ftpcheck_path):
+            return jsonify({'success': False, 'message': 'ftpCheck.py 檔案不存在'})
+        
+        # 執行 ftpcheck.py
+        cmd = [
+            'python', 
+            ftpcheck_path, 
+            ftp_address, 
+            username or '', 
+            password or ''
+        ]
+        
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=30,
+            encoding='utf-8'
+        )
+        
+        # 分析返回值
+        return_code = result.returncode
+        output = result.stdout
+        error_output = result.stderr
+        
+        # 根據返回碼判斷結果
+        if return_code == 0:
+            success = True
+            message = "FTP 連接測試成功！所有功能正常運作。"
+        elif return_code == 1:
+            success = False
+            message = "FTP 連接失敗，請檢查主機地址、埠號或網路連接。"
+        elif return_code == 2:
+            success = False
+            message = "FTP 連接成功，但無法建立目錄，請檢查權限設定。"
+        elif return_code == 3:
+            success = False
+            message = "FTP 連接成功，但無法刪除目錄，請檢查權限設定。"
+        elif return_code == 4:
+            success = False
+            message = "FTP 連接成功，但無法建立檔案，請檢查權限設定。"
+        elif return_code == 5:
+            success = False
+            message = "FTP 連接成功，但無法刪除檔案，請檢查權限設定。"
+        else:
+            success = False
+            message = f"FTP 測試失敗，未知錯誤 (返回碼: {return_code})"
+        
+        # 準備完整的結果資訊
+        result_data = {
+            'success': success,
+            'message': message,
+            'return_code': return_code,
+            'output': output,
+            'error_output': error_output,
+            'test_details': {
+                'host': ftp_address,
+                'username': username,
+                'ssl_enabled': config.get('ssl_enabled', False),
+                'tls_enabled': config.get('tls_enabled', False)
+            }
+        }
+        
+        return jsonify(result_data)
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            'success': False, 
+            'message': 'FTP 連接測試逾時（30秒），請檢查網路連接或主機是否回應'
+        })
+    except Exception as e:
+        logging.exception(f'FTP 連接測試失敗: {str(e)}')
+        return jsonify({
+            'success': False, 
+            'message': f'測試過程中發生錯誤: {str(e)}'
+        })
+
 # 設定摘要頁面
 @app.route('/config-summary')
 def config_summary():
