@@ -97,10 +97,10 @@ def configure_logging(app):
 def register_blueprints(app):
     """註冊所有 Blueprint"""
     try:
+        # 註冊原有的 Blueprint
         from controllers import (dashboard_bp, api_bp, device_bp, uart_bp, 
                                network_bp, protocol_bp, ftp_bp, database_bp, mode_bp)
         
-        # 註冊主要 Blueprint
         app.register_blueprint(dashboard_bp)
         app.register_blueprint(api_bp)
         app.register_blueprint(device_bp)
@@ -110,6 +110,21 @@ def register_blueprints(app):
         app.register_blueprint(ftp_bp)
         app.register_blueprint(database_bp)
         app.register_blueprint(mode_bp)
+        
+        # 註冊新的 app_integrated.py 重構後的 Blueprint
+        from controllers.integrated_home_controller import integrated_home_bp
+        from controllers.integrated_device_controller import integrated_device_bp
+        from controllers.integrated_wifi_controller import integrated_wifi_bp
+        from controllers.integrated_dashboard_controller import integrated_dashboard_bp
+        from controllers.integrated_protocol_controller import integrated_protocol_bp
+        from controllers.integrated_uart_controller import integrated_uart_bp
+        
+        app.register_blueprint(integrated_home_bp)
+        app.register_blueprint(integrated_device_bp)
+        app.register_blueprint(integrated_wifi_bp)
+        app.register_blueprint(integrated_dashboard_bp)
+        app.register_blueprint(integrated_protocol_bp)
+        app.register_blueprint(integrated_uart_bp)
         
         app.logger.info('所有 Blueprint 已成功註冊')
         

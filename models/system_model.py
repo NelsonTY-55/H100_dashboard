@@ -6,7 +6,6 @@
 import platform
 import os
 import logging
-import psutil if psutil else None
 
 try:
     import psutil
