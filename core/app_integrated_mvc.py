@@ -4,8 +4,29 @@ H100 Dashboard 整合應用程式
 使用 MVC 架構和 Flask 工廠模式重構版本
 """
 
-import os
+# 修復 charset_normalizer 循環導入問題
 import sys
+
+def fix_charset_normalizer():
+    """修復 charset_normalizer 循環導入問題的函數"""
+    try:
+        # 清理可能存在問題的模組
+        modules_to_clean = ['charset_normalizer', 'urllib3', 'requests', 'certifi', 'idna']
+        for module in modules_to_clean:
+            if module in sys.modules:
+                del sys.modules[module]
+        
+        # 嘗試重新導入
+        import charset_normalizer
+        return True
+    except Exception as e:
+        print(f"警告: charset_normalizer 修復失敗: {e}")
+        return False
+
+# 執行修復
+fix_charset_normalizer()
+
+import os
 import logging
 import platform
 from datetime import datetime
@@ -27,8 +48,40 @@ from device_settings import DeviceSettingsManager
 from multi_device_settings import MultiDeviceSettingsManager
 from database_manager import DatabaseManager
 from uart_integrated import uart_reader
-from models.dashboard_data_sender_model import DashboardDataSenderModel
-from models.ftp_model import FTPModel
+
+# 安全導入 Dashboard 資料發送模型（可選功能）
+try:
+    from models.dashboard_data_sender_model import DashboardDataSenderModel
+    DASHBOARD_SENDER_AVAILABLE = True
+except ImportError as e:
+    DASHBOARD_SENDER_AVAILABLE = False
+    logging.warning(f"Dashboard 資料發送模型未載入: {e}")
+    # 創建一個虛擬的類以防止錯誤
+    class DashboardDataSenderModel:
+        def __init__(self): 
+            self.enabled = False
+        def get_sender(self): 
+            return self
+        def start(self, *args): 
+            return False
+        @property
+        def is_running(self): 
+            return False
+
+# 安全導入 FTP 模型
+try:
+    from models.ftp_model import FTPModel
+    FTP_MODEL_AVAILABLE = True
+except ImportError as e:
+    FTP_MODEL_AVAILABLE = False
+    logging.warning(f"FTP 模型未載入: {e}")
+    # 創建虛擬 FTP 模型
+    class FTPModel:
+        def get_local_server(self):
+            return self
+        @property
+        def is_running(self):
+            return False
 
 # 檢查是否安裝了 requests
 try:
@@ -122,19 +175,31 @@ def initialize_components(app):
         except Exception as e:
             logging.warning(f"離線模式管理器初始化失敗: {e}")
         
-        # 初始化 Dashboard 資料發送器
-        dashboard_sender_model = DashboardDataSenderModel()
-        app.dashboard_sender_model = dashboard_sender_model
+        # 初始化 Dashboard 資料發送器（如果可用）
+        if DASHBOARD_SENDER_AVAILABLE:
+            dashboard_sender_model = DashboardDataSenderModel()
+            app.dashboard_sender_model = dashboard_sender_model
+            
+            # 如果 UART 正在運行，自動啟動資料發送
+            if uart_reader and uart_reader.is_running:
+                dashboard_sender = dashboard_sender_model.get_sender()
+                if hasattr(dashboard_sender, 'enabled') and dashboard_sender.enabled:
+                    dashboard_sender.start(uart_reader)
+            
+            logging.info("Dashboard 資料發送器已初始化")
+        else:
+            # 如果無法載入，創建虛擬模型
+            app.dashboard_sender_model = DashboardDataSenderModel()
+            logging.warning("Dashboard 資料發送器使用虛擬模型")
         
-        # 如果 UART 正在運行，自動啟動資料發送
-        if uart_reader and uart_reader.is_running:
-            dashboard_sender = dashboard_sender_model.get_sender()
-            if dashboard_sender.enabled:
-                dashboard_sender.start(uart_reader)
-        
-        # 初始化本地 FTP 服務器
-        ftp_model = FTPModel()
-        app.ftp_model = ftp_model
+        # 初始化本地 FTP 服務器（如果可用）
+        if FTP_MODEL_AVAILABLE:
+            ftp_model = FTPModel()
+            app.ftp_model = ftp_model
+            logging.info("FTP 模型已初始化")
+        else:
+            app.ftp_model = FTPModel()
+            logging.warning("FTP 模型使用虛擬模型")
         
         # 設定 Flask MonitoringDashboard（如果可用）
         if DASHBOARD_AVAILABLE:
@@ -153,10 +218,14 @@ def initialize_components(app):
             'ConfigManager',
             'DeviceSettingsManager', 
             'MultiDeviceSettingsManager',
-            'DatabaseManager',
-            'DashboardDataSenderModel',
-            'FTPModel'
+            'DatabaseManager'
         ]
+        
+        # 添加可選組件
+        if DASHBOARD_SENDER_AVAILABLE:
+            components.append('DashboardDataSenderModel')
+        if FTP_MODEL_AVAILABLE:
+            components.append('FTPModel')
         
         logging.info(f"應用程式組件已成功初始化: {', '.join(components)}")
         
