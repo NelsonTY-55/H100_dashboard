@@ -1,0 +1,52 @@
+{
+  "protocols": {
+    "UART": {
+      "com_port": "COM3",
+      "baud_rate": 9600,
+      "parity": "N",
+      "stopbits": 1,
+      "bytesize": 8,
+      "timeout": 1
+    },
+    "MQTT": {
+      "broker": "localhost",
+      "port": 1883,
+      "topic": "ct_data",
+      "username": "",
+      "password": "",
+      "keepalive": 60,
+      "qos": 0
+    },
+    "RTU": {
+      "com_port": "COM4",
+      "baud_rate": 9600,
+      "parity": "N",
+      "stopbits": 1,
+      "bytesize": 8,
+      "timeout": 1
+    },
+    "FTP": {
+      "host": "192.168.1.100",
+      "port": 21,
+      "username": "ftp_user",
+      "password": "ftp_password",
+      "remote_dir": "/uploads/",
+      "passive_mode": true
+    },
+    "FastAPI": {
+      "host": "localhost",
+      "port": 8000,
+      "endpoint": "/upload",
+      "timeout": 30
+    },
+    "TCP": {
+      "host": "0.0.0.0",
+      "port": 5020,
+      "timeout": 10,
+      "retry_count": 3
+    }
+  },
+  "offline_mode": true,
+  "data_retention_days": 30,
+  "max_data_points": 1000
+}
