@@ -1,5 +1,5 @@
 """
-主程式 - 同時執行 app_integrated.py 和 dashboard.py
+主程式 - 同時執行 app_integrated_mvc.py 和 dashboard.py
 """
 
 import os
@@ -193,7 +193,7 @@ def main():
     
     # 檢查腳本文件是否存在
     scripts = [
-        ("主應用服務", "app_integrated.py", 5000),
+        ("主應用服務", "app_integrated_mvc.py", 5000),
         ("Dashboard API", "dashboard.py", 5001)
     ]
     

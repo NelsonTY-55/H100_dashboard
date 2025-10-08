@@ -16,18 +16,20 @@
 
 ```
 H100_dashboard/
-├── app_integrated.py          # 主應用程式（整合版）
-├── app_with_settings.py       # 設備設定整合版本
-├── dashboard.py               # 儀表板主程式
-├── run_services.py            # 服務管理器（同時運行多個服務）
+├── app_integrated_mvc.py      # 主應用程式（MVC 架構版 - 樹莓派端）
+├── dashboard.py               # 儀表板 API 服務（筆電端）
 ├── config.json                # 主配置檔案
 ├── device_settings.json       # 設備設定檔案
 ├── multi_device_settings.json # 多設備設定檔案
 ├── requirements.txt           # Python 依賴套件
+├── controllers/               # MVC 控制器層
+├── models/                    # MVC 模型層
+├── views/                     # MVC 視圖層
 ├── templates/                 # HTML 模板
-├── utils/                     # 工具模組
 ├── config/                    # 配置檔案目錄
+├── core/                      # 核心應用程式工廠
 ├── logs/                      # 日誌檔案
+├── utils/                     # 工具模組
 └── History/                   # 歷史數據
 ```
 
@@ -65,35 +67,31 @@ H100_dashboard/
 
 ## 使用方法
 
-### 方法一：使用服務管理器（推薦）
+## 快速開始
 
-啟動所有服務：
+### 部署模式（推薦）
+
+**樹莓派端**（完整功能）：
 ```bash
-python run_services.py
+python app_integrated_mvc.py
 ```
 
-### 方法二：單獨運行服務
+**筆電端**（API 服務）：
+```bash
+python dashboard.py
+```
 
-1. **運行主應用程式**
-   ```bash
-   python app_integrated.py
-   ```
+### 單一設備模式
 
-2. **運行儀表板**
-   ```bash
-   python dashboard.py
-   ```
-
-3. **運行設備設定版本**
-   ```bash
-   python app_with_settings.py
-   ```
+運行完整功能在單一設備：
+```bash
+python app_integrated_mvc.py
+```
 
 ### 存取介面
 
-- 主應用: http://localhost:5000
-- 儀表板: http://localhost:5001
-- 設備設定: http://localhost:5002
+- 樹莓派端主應用: http://localhost:5000
+- 筆電端 API 服務: http://localhost:5001
 
 ## 配置說明
 
@@ -133,13 +131,18 @@ python run_services.py
 
 | 檔案 | 說明 |
 |------|------|
-| `app_integrated.py` | 整合所有功能的主應用程式 |
+| `app_integrated_mvc.py` | MVC 架構主應用程式（樹莓派端） |
+| `dashboard.py` | API 服務（筆電端） |
+| `core/app_factory.py` | Flask 應用程式工廠 |
+| `controllers/` | MVC 控制器層 |
+| `models/` | MVC 模型層 |
+| `views/` | MVC 視圖層 |
 | `multi_protocol_manager.py` | 多協定管理器 |
 | `device_settings.py` | 設備設定管理 |
 | `network_utils.py` | 網路工具函數 |
 | `port_manager.py` | 串口管理 |
 | `uart_integrated.py` | UART 通訊整合 |
-| `config_manager.py` | 配置管理器 |
+| `config/config_manager.py` | 配置管理器 |
 
 ## 日誌與監控
 
