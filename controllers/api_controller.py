@@ -1,53 +1,55 @@
 """
-API 控制器
-處理一般 API 路由和系統狀態
+API 控制器 - MVC 架構
+處理一般 API 路由 (健康檢查、狀態、配置等)
 """
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, request, jsonify
 import logging
-from models import SystemModel, NetworkModel
+import platform
+from datetime import datetime
 
 # 創建 Blueprint
-api_bp = Blueprint('api', __name__, url_prefix='/api')
+api_bp = Blueprint('api', __name__)
 
-# 初始化模型
-system_model = SystemModel()
-network_model = NetworkModel()
+# 全域變數，將在初始化時設置
+config_manager = None
+device_settings_manager = None
 
+def init_controller(config_mgr, device_settings_mgr):
+    """初始化控制器"""
+    global config_manager, device_settings_manager
+    config_manager = config_mgr
+    device_settings_manager = device_settings_mgr
 
 @api_bp.route('/health')
-def api_health():
-    """API 健康檢查"""
-    try:
-        return jsonify({
-            'success': True,
-            'status': 'healthy',
-            'message': 'Dashboard API 服務正常運行',
-            'timestamp': system_model.get_system_info()
-        })
-    except Exception as e:
-        logging.error(f"健康檢查失敗: {e}")
-        return jsonify({
-            'success': False,
-            'status': 'unhealthy',
-            'error': str(e)
-        }), 500
-
+def health_check():
+    """健康檢查 API"""
+    return jsonify({
+        'status': 'healthy',
+        'timestamp': datetime.now().isoformat(),
+        'service': 'H100 Dashboard API',
+        'version': '1.0.0'
+    })
 
 @api_bp.route('/status')
-def api_status():
-    """獲取系統狀態"""
+def status():
+    """系統狀態 API"""
     try:
-        system_info = system_model.get_detailed_system_info()
-        network_status = network_model.get_network_status()
+        system_info = get_system_info()
         
         return jsonify({
             'success': True,
+            'timestamp': datetime.now().isoformat(),
             'data': {
                 'system': system_info,
-                'network': network_status,
+                'config': {
+                    'host': '0.0.0.0',
+                    'port': 5001,
+                    'debug': True,
+                    'standalone_mode': True
+                },
                 'service': {
-                    'name': 'H100 Dashboard',
+                    'name': 'H100 Dashboard API',
                     'version': '1.0.0',
                     'status': 'running'
                 }
@@ -58,82 +60,79 @@ def api_status():
         logging.error(f"獲取系統狀態時發生錯誤: {e}")
         return jsonify({
             'success': False,
-            'error': str(e)
-        }), 500
+            'message': f'獲取系統狀態失敗: {str(e)}'
+        })
 
-
-@api_bp.route('/config')
-def api_config():
-    """獲取系統配置"""
-    try:
-        # 返回非敏感的配置資訊
-        config = {
-            'features': {
-                'uart_support': True,
-                'wifi_support': True,
-                'multi_device': True,
-                'system_monitoring': system_model.get_system_info()['psutil_available']
-            },
-            'limits': {
-                'max_uart_records': 50000,
-                'max_devices': 100,
-                'api_timeout': 30
+@api_bp.route('/dashboard/config', methods=['GET', 'POST'])
+def dashboard_config():
+    """Dashboard 配置管理 API"""
+    if request.method == 'GET':
+        try:
+            # 獲取當前配置
+            config_data = {
+                'raspberry_pi_host': '192.168.113.239',
+                'raspberry_pi_port': 5000,
+                'standalone_mode': True,
+                'debug': True,
+                'host': '0.0.0.0',
+                'port': 5001
             }
+            
+            return jsonify({
+                'success': True,
+                'config': config_data,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logging.error(f"獲取 Dashboard 配置時發生錯誤: {e}")
+            return jsonify({
+                'success': False,
+                'message': f'獲取配置失敗: {str(e)}'
+            })
+    
+    else:  # POST
+        try:
+            data = request.get_json()
+            if not data:
+                return jsonify({
+                    'success': False,
+                    'message': '無效的請求資料'
+                })
+            
+            # 這裡可以添加配置更新邏輯
+            logging.info(f"Dashboard 配置更新請求: {data}")
+            
+            return jsonify({
+                'success': True,
+                'message': '配置已更新',
+                'config': data,
+                'timestamp': datetime.now().isoformat()
+            })
+            
+        except Exception as e:
+            logging.error(f"更新 Dashboard 配置時發生錯誤: {e}")
+            return jsonify({
+                'success': False,
+                'message': f'更新配置失敗: {str(e)}'
+            })
+
+def get_system_info():
+    """獲取系統基本資訊"""
+    try:
+        return {
+            'platform': platform.system(),
+            'platform_version': platform.release(),
+            'python_version': platform.python_version(),
+            'hostname': platform.node(),
+            'architecture': platform.machine()
         }
-        
-        return jsonify({
-            'success': True,
-            'data': config
-        })
-        
     except Exception as e:
-        logging.error(f"獲取系統配置時發生錯誤: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@api_bp.route('/system/status')
-def api_system_status():
-    """獲取詳細系統狀態"""
-    try:
-        system_stats = system_model.get_system_stats()
-        
-        return jsonify({
-            'success': True,
-            'data': system_stats
-        })
-        
-    except Exception as e:
-        logging.error(f"獲取系統狀態時發生錯誤: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@api_bp.route('/system/offline-mode', methods=['POST'])
-def api_system_offline_mode():
-    """設定離線模式"""
-    try:
-        data = request.get_json()
-        offline_mode = data.get('offline_mode', False)
-        
-        # 這裡可以實現離線模式的邏輯
-        # 暫時只返回設定結果
-        
-        return jsonify({
-            'success': True,
-            'data': {
-                'offline_mode': offline_mode,
-                'message': f"離線模式已{'啟用' if offline_mode else '關閉'}"
-            }
-        })
-        
-    except Exception as e:
-        logging.error(f"設定離線模式時發生錯誤: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        logging.error(f"獲取系統資訊時發生錯誤: {e}")
+        return {
+            'platform': '未知',
+            'platform_version': '未知',
+            'python_version': '未知',
+            'hostname': '未知',
+            'architecture': '未知'
+        }

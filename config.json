@@ -1,7 +1,7 @@
 {
   "protocols": {
     "UART": {
-      "com_port": "COM3",
+      "com_port": "COM6",
       "baud_rate": 9600,
       "parity": "N",
       "stopbits": 1,

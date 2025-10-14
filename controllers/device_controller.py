@@ -1,236 +1,186 @@
 """
-設備控制器
+設備控制器 - MVC 架構
 處理設備設定和管理相關的路由
 """
 
 from flask import Blueprint, render_template, request, jsonify, flash, redirect, url_for
 import logging
-from models import DeviceSettingsModel
+from datetime import datetime
 
 # 創建 Blueprint
 device_bp = Blueprint('device', __name__)
 
-# 初始化模型
-device_model = DeviceSettingsModel()
+# 全域變數，將在初始化時設置
+device_settings_manager = None
+multi_device_settings_manager = None
 
+def init_controller(device_settings_mgr, multi_device_settings_mgr):
+    """初始化控制器"""
+    global device_settings_manager, multi_device_settings_manager
+    device_settings_manager = device_settings_mgr
+    multi_device_settings_manager = multi_device_settings_mgr
 
 @device_bp.route('/db-setting')
 def db_setting():
     """設備設定頁面"""
+    logging.info(f'訪問設備設定頁面, remote_addr={request.remote_addr}')
+    
+    # 檢查是否從 dashboard 重定向過來
+    redirect_to_dashboard = request.args.get('redirect', 'false').lower() == 'true'
+    
+    # 載入當前設備設定
     try:
-        device_settings = device_model.load_device_settings()
-        multi_device_settings = device_model.load_multi_device_settings()
-        
-        return render_template('db_setting.html',
-                             device_settings=device_settings.get('data', {}),
-                             multi_device_settings=multi_device_settings.get('data', {}))
+        current_settings = device_settings_manager.load_settings() if device_settings_manager else {}
     except Exception as e:
-        logging.error(f"載入設備設定頁面時發生錯誤: {e}")
-        return render_template('error.html', error=str(e)), 500
-
+        logging.error(f"載入設備設定時發生錯誤: {e}")
+        current_settings = {}
+    
+    return render_template('db_setting.html', 
+                         current_settings=current_settings,
+                         redirect_to_dashboard=redirect_to_dashboard)
 
 @device_bp.route('/api/device-settings', methods=['GET', 'POST'])
 def api_device_settings():
-    """設備設定 API"""
-    try:
-        if request.method == 'GET':
-            # 獲取設備設定
-            device_settings = device_model.load_device_settings()
-            return jsonify(device_settings)
-        
-        elif request.method == 'POST':
-            # 儲存設備設定
+    """API: 獲取或儲存設備設定，支援多設備"""
+    if request.method == 'GET':
+        try:
+            # 檢查是否指定了特定的 MAC ID
+            mac_id = request.args.get('mac_id')
+            
+            if mac_id and multi_device_settings_manager:
+                # 獲取特定設備的設定
+                settings = multi_device_settings_manager.load_device_settings(mac_id)
+                return jsonify({'success': True, 'settings': settings, 'mac_id': mac_id})
+            else:
+                # 沒有指定 MAC ID，返回傳統的單一設備設定（向後相容）
+                settings = device_settings_manager.load_settings() if device_settings_manager else {}
+                return jsonify({'success': True, 'settings': settings})
+                
+        except Exception as e:
+            logging.error(f"獲取設備設定時發生錯誤: {e}")
+            return jsonify({'success': False, 'message': f'獲取設定失敗: {str(e)}'})
+    
+    else:  # POST
+        try:
             data = request.get_json()
             if not data:
-                return jsonify({
-                    'success': False,
-                    'error': '沒有接收到設定資料'
-                }), 400
+                return jsonify({'success': False, 'message': '無效的請求資料'})
             
-            result = device_model.save_device_settings(data)
+            # 驗證必要欄位
+            if not data.get('device_name', '').strip():
+                return jsonify({'success': False, 'message': '設備名稱不能為空'})
             
-            if result['success']:
-                return jsonify(result)
+            # 檢查是否有 MAC ID (device_serial)
+            mac_id = data.get('device_serial', '').strip()
+            
+            if mac_id and multi_device_settings_manager:
+                # 有 MAC ID，使用多設備管理器
+                if multi_device_settings_manager.save_device_settings(mac_id, data):
+                    response_data = {
+                        'success': True, 
+                        'message': f'設備 {mac_id} 的設定已成功儲存',
+                        'mac_id': mac_id
+                    }
+                    logging.info(f"設備 {mac_id} 設定已更新: {data.get('device_name')}")
+                    return jsonify(response_data)
+                else:
+                    return jsonify({'success': False, 'message': f'儲存設備 {mac_id} 設定失敗'})
             else:
-                return jsonify(result), 500
+                # 沒有 MAC ID，使用傳統的單一設備管理器（向後相容）
+                if device_settings_manager and device_settings_manager.save_settings(data):
+                    response_data = {
+                        'success': True, 
+                        'message': '設備設定已成功儲存'
+                    }
+                    logging.info(f"設備設定已更新: {data.get('device_name')}")
+                    return jsonify(response_data)
+                else:
+                    return jsonify({'success': False, 'message': '儲存設定失敗'})
                 
-    except Exception as e:
-        logging.error(f"處理設備設定 API 時發生錯誤: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
+        except Exception as e:
+            logging.error(f"儲存設備設定時發生錯誤: {e}")
+            return jsonify({'success': False, 'message': f'處理請求時發生錯誤: {str(e)}'})
 
-
-@device_bp.route('/api/multi-device-settings', methods=['GET', 'POST'])
+@device_bp.route('/api/multi-device-settings')
 def api_multi_device_settings():
-    """多設備設定 API"""
+    """API: 獲取所有設備設定"""
     try:
-        if request.method == 'GET':
-            # 獲取多設備設定
-            multi_device_settings = device_model.load_multi_device_settings()
-            return jsonify(multi_device_settings)
-        
-        elif request.method == 'POST':
-            # 儲存多設備設定
-            data = request.get_json()
-            if not data:
-                return jsonify({
-                    'success': False,
-                    'error': '沒有接收到設定資料'
-                }), 400
-            
-            result = device_model.save_multi_device_settings(data)
-            
-            if result['success']:
-                return jsonify(result)
-            else:
-                return jsonify(result), 500
-                
-    except Exception as e:
-        logging.error(f"處理多設備設定 API 時發生錯誤: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@device_bp.route('/api/device/<device_id>', methods=['GET', 'PUT', 'DELETE'])
-def api_device_management(device_id):
-    """設備管理 API"""
-    try:
-        if request.method == 'GET':
-            # 獲取指定設備資訊
-            device = device_model.get_device_by_id(device_id)
-            if device:
-                return jsonify({
-                    'success': True,
-                    'data': device
-                })
-            else:
-                return jsonify({
-                    'success': False,
-                    'error': f'找不到設備 ID: {device_id}'
-                }), 404
-        
-        elif request.method == 'PUT':
-            # 更新設備設定
-            data = request.get_json()
-            if not data:
-                return jsonify({
-                    'success': False,
-                    'error': '沒有接收到更新資料'
-                }), 400
-            
-            result = device_model.update_device_settings(device_id, data)
-            
-            if result['success']:
-                return jsonify(result)
-            else:
-                return jsonify(result), 400 if '找不到設備' in result.get('error', '') else 500
-        
-        elif request.method == 'DELETE':
-            # 刪除設備
-            result = device_model.remove_device(device_id)
-            
-            if result['success']:
-                return jsonify(result)
-            else:
-                return jsonify(result), 400 if '找不到設備' in result.get('error', '') else 500
-                
-    except Exception as e:
-        logging.error(f"處理設備管理 API 時發生錯誤: {e}")
-        return jsonify({
-            'success': False,
-            'error': str(e)
-        }), 500
-
-
-@device_bp.route('/api/devices', methods=['GET', 'POST'])
-def api_devices():
-    """設備列表 API"""
-    try:
-        if request.method == 'GET':
-            # 獲取所有設備
-            devices = device_model.get_all_devices()
+        if not multi_device_settings_manager:
             return jsonify({
-                'success': True,
-                'data': devices,
-                'total_count': len(devices)
+                'success': False,
+                'message': '多設備管理器未初始化',
+                'devices': {}
             })
-        
-        elif request.method == 'POST':
-            # 新增設備
-            data = request.get_json()
-            if not data:
-                return jsonify({
-                    'success': False,
-                    'error': '沒有接收到設備資料'
-                }), 400
             
-            # 驗證必要字段
-            if 'id' not in data:
-                return jsonify({
-                    'success': False,
-                    'error': '缺少設備 ID'
-                }), 400
-            
-            result = device_model.add_device(data)
-            
-            if result['success']:
-                return jsonify(result), 201
-            else:
-                return jsonify(result), 400 if '已存在' in result.get('error', '') else 500
-                
+        all_devices = multi_device_settings_manager.load_all_devices()
+        return jsonify({
+            'success': True,
+            'devices': all_devices,
+            'device_count': len(all_devices),
+            'timestamp': datetime.now().isoformat()
+        })
     except Exception as e:
-        logging.error(f"處理設備列表 API 時發生錯誤: {e}")
+        logging.error(f"獲取多設備設定時發生錯誤: {e}")
         return jsonify({
             'success': False,
-            'error': str(e)
-        }), 500
+            'message': f'獲取多設備設定失敗: {str(e)}',
+            'devices': {}
+        })
 
-
-@device_bp.route('/api/devices/search')
-def api_devices_search():
-    """設備搜尋 API"""
+@device_bp.route('/api/dashboard/areas')
+def api_dashboard_areas():
+    """API: 獲取所有廠區、位置、設備型號統計資料"""
     try:
-        query = request.args.get('q', '').strip()
-        device_type = request.args.get('type', '')
-        status = request.args.get('status', '')
+        if not multi_device_settings_manager:
+            return jsonify({
+                'success': False,
+                'message': '多設備管理器未初始化',
+                'areas': [],
+                'locations': [],
+                'models': []
+            })
+            
+        all_devices = multi_device_settings_manager.load_all_devices()
         
-        devices = device_model.get_all_devices()
+        # 統計廠區 (device_name)
+        areas = set()
+        locations = set()
+        models = set()
         
-        # 過濾設備
-        filtered_devices = []
-        for device in devices:
-            # 名稱搜尋
-            if query and query.lower() not in device.get('name', '').lower():
-                continue
+        for mac_id, device_setting in all_devices.items():
+            # 廠區對應 device_name
+            if device_setting.get('device_name'):
+                areas.add(device_setting['device_name'])
             
-            # 類型過濾
-            if device_type and device.get('type', '') != device_type:
-                continue
+            # 設備位置對應 device_location    
+            if device_setting.get('device_location'):
+                locations.add(device_setting['device_location'])
             
-            # 狀態過濾
-            if status and device.get('status', '') != status:
-                continue
-            
-            filtered_devices.append(device)
+            # 設備型號處理
+            device_model = device_setting.get('device_model', '')
+            if isinstance(device_model, dict):
+                # 如果是字典格式（多頻道型號）
+                for channel, model in device_model.items():
+                    if model and model.strip():
+                        models.add(model.strip())
+            elif isinstance(device_model, str) and device_model.strip():
+                models.add(device_model.strip())
         
         return jsonify({
             'success': True,
-            'data': filtered_devices,
-            'total_count': len(filtered_devices),
-            'query': query,
-            'filters': {
-                'type': device_type,
-                'status': status
-            }
+            'areas': sorted(list(areas)),
+            'locations': sorted(list(locations)),
+            'models': sorted(list(models)),
+            'device_count': len(all_devices),
+            'timestamp': datetime.now().isoformat()
         })
         
     except Exception as e:
-        logging.error(f"搜尋設備時發生錯誤: {e}")
+        logging.error(f"獲取廠區統計資料時發生錯誤: {e}")
         return jsonify({
             'success': False,
-            'error': str(e)
-        }), 500
+            'message': f'獲取廠區統計資料失敗: {str(e)}',
+            'areas': [],
+            'locations': [],
+            'models': []
+        })
