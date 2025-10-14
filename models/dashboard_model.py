@@ -10,7 +10,7 @@ import platform
 import time
 import threading
 import glob
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
 
 
@@ -513,7 +513,7 @@ class UartDataModel:
                 'success': True,
                 'status': 'running' if self.uart_reader.is_running else 'stopped',
                 'is_running': self.uart_reader.is_running,
-                'data_count': len(self.uart_reader.get_data()) if self.uart_reader.get_data() else 0,
+                'data_count': len(self.uart_reader.get_latest_data()) if self.uart_reader.get_latest_data() else 0,
                 'last_update': datetime.now().isoformat()
             }
         except Exception as e:
@@ -534,18 +534,38 @@ class UartDataModel:
                     'mac_ids': []
                 }
             
-            data = self.uart_reader.get_data()
+            # 首先嘗試從即時數據獲取
+            data = self.uart_reader.get_latest_data()
             mac_ids = set()
             
-            for entry in data:
-                mac_id = entry.get('mac_id')
-                if mac_id:
-                    mac_ids.add(mac_id)
+            if data:
+                # UART 數據格式: [{'timestamp': '...', 'mac_id': '...', 'channel': 0, 'parameter': 61.45, 'unit': 'A'}, ...]
+                for entry in data:
+                    mac_id = entry.get('mac_id')
+                    if mac_id and mac_id.strip() and mac_id not in ['N/A', '', 'None']:
+                        mac_ids.add(mac_id)
+            
+            # 如果即時數據沒有足夠的 MAC ID，嘗試載入歷史數據
+            if len(mac_ids) == 0:
+                self.logger.info("即時數據中沒有 MAC ID，嘗試載入歷史數據")
+                if hasattr(self.uart_reader, 'load_historical_data'):
+                    self.uart_reader.load_historical_data(days_back=7)
+                    data = self.uart_reader.get_latest_data()
+                    
+                    for entry in data:
+                        mac_id = entry.get('mac_id')
+                        if mac_id and mac_id.strip() and mac_id not in ['N/A', '', 'None']:
+                            mac_ids.add(mac_id)
+            
+            unique_mac_ids = sorted(list(mac_ids))
+            data_source = '歷史文件' if len(mac_ids) > 0 and len(self.uart_reader.get_latest_data()) > len(data) else 'UART即時數據'
             
             return {
                 'success': True,
-                'mac_ids': sorted(list(mac_ids)),
-                'count': len(mac_ids)
+                'mac_ids': unique_mac_ids,
+                'count': len(unique_mac_ids),
+                'data_source': data_source,
+                'total_entries': len(data) if data else 0
             }
         except Exception as e:
             self.logger.error(f"取得 MAC ID 列表失敗: {e}")
@@ -565,7 +585,7 @@ class UartDataModel:
                     'data': {}
                 }
             
-            data = self.uart_reader.get_data()
+            data = self.uart_reader.get_latest_data()
             
             if mac_id:
                 # 取得特定 MAC ID 的通道資訊

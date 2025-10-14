@@ -37,13 +37,13 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 # 導入應用程式工廠
-from app_factory import create_app
+from core.app_factory import create_app
 
 # 導入日誌模型
 from models.logging_model import LoggingModel
 
 # 導入其他必要的模組
-from config_manager import ConfigManager
+from config.config_manager import ConfigManager
 from device_settings import DeviceSettingsManager
 from multi_device_settings import MultiDeviceSettingsManager
 from database_manager import DatabaseManager

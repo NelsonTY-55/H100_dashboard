@@ -6,7 +6,7 @@ import re
 import os
 import csv
 from datetime import datetime
-from config_manager import ConfigManager
+from config.config_manager import ConfigManager
 import paho.mqtt.client as mqtt
 
 # 導入資料庫管理器
