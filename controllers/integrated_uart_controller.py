@@ -192,7 +192,7 @@ def get_uart_mac_ids():
         # 修正：如果即時數據為空或MAC ID數量少於預期，強制載入歷史數據
         if not data or len(set(entry.get('mac_id') for entry in data if entry.get('mac_id') and entry.get('mac_id') not in ['N/A', '', None])) < 1:
             logging.info('即時數據不足，嘗試從歷史文件載入MAC ID')
-            uart_reader.load_historical_data(days_back=7)  # 載入最近7天的數據
+            uart_reader.load_historical_data(days_back=90)  # 載入最近90天的數據
             data = uart_reader.get_latest_data()
             data_source = '歷史文件增強載入'
             logging.info(f'從歷史文件增強載入數據: {len(data) if data else 0} 筆')
@@ -237,4 +237,126 @@ def get_uart_mac_ids():
         return jsonify({
             'success': False,
             'message': f'獲取MAC ID列表時發生錯誤: {str(e)}'
+        }), 500
+
+
+@integrated_uart_bp.route('/api/uart/mac-channels/', methods=['GET'])
+@integrated_uart_bp.route('/api/uart/mac-channels/<mac_id>', methods=['GET'])
+def get_uart_mac_channels(mac_id=None):
+    """API: 獲取指定 MAC ID 的通道資訊"""
+    try:
+        logging.info(f'API請求: /api/uart/mac-channels/{mac_id or "all"} from {request.remote_addr}')
+        
+        from uart_integrated import uart_reader
+        
+        # 獲取最新數據
+        data = uart_reader.get_latest_data()
+        
+        if not data:
+            logging.warning('沒有可用的UART數據')
+            return jsonify({
+                'success': True,
+                'channels': [],
+                'message': '暫無UART數據，請先啟動UART讀取'
+            })
+        
+        if mac_id:
+            # 獲取指定 MAC ID 的通道資訊
+            mac_channels = []
+            valid_channels = set()  # 用於收集有效頻道（0-6）
+            
+            for entry in data:
+                if entry.get('mac_id') == mac_id:
+                    channel = entry.get('channel', 'N/A')
+                    
+                    # 檢查頻道是否在有效範圍內（0-6）
+                    try:
+                        channel_num = int(channel)
+                        if 0 <= channel_num <= 6:
+                            valid_channels.add(channel_num)
+                            
+                            channel_info = {
+                                'timestamp': entry.get('timestamp', ''),
+                                'channel': channel_num,
+                                'current': entry.get('current', 0),
+                                'temperature': entry.get('temperature', 0),
+                                'power': entry.get('power', 0),
+                                'voltage': entry.get('voltage', 0),
+                                'frequency': entry.get('frequency', 0),
+                                'power_factor': entry.get('power_factor', 0)
+                            }
+                            mac_channels.append(channel_info)
+                    except (ValueError, TypeError):
+                        # 忽略無效的頻道值
+                        continue
+            
+            # 按時間戳排序（最新的在前）
+            mac_channels.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+            
+            # 轉換有效頻道為排序列表
+            valid_channels_list = sorted(list(valid_channels))
+            
+            return jsonify({
+                'success': True,
+                'mac_id': mac_id,
+                'channels': valid_channels_list,  # 只返回有效頻道號列表
+                'channel_data': mac_channels,     # 詳細資料
+                'total_records': len(mac_channels),
+                'data_source': 'UART實時數據' if mac_channels else '無有效數據'
+            })
+        else:
+            # 獲取所有 MAC ID 的通道摘要
+            mac_summary = {}
+            for entry in data:
+                mac = entry.get('mac_id')
+                if mac and mac not in ['N/A', '', None]:
+                    if mac not in mac_summary:
+                        mac_summary[mac] = {
+                            'mac_id': mac,
+                            'channels': set(),
+                            'latest_timestamp': '',
+                            'total_records': 0
+                        }
+                    
+                    # 檢查頻道是否在有效範圍內（0-6）
+                    channel = entry.get('channel', 'N/A')
+                    try:
+                        channel_num = int(channel)
+                        if 0 <= channel_num <= 6:
+                            mac_summary[mac]['channels'].add(channel_num)
+                            mac_summary[mac]['total_records'] += 1
+                            
+                            # 更新最新時間戳
+                            timestamp = entry.get('timestamp', '')
+                            if timestamp > mac_summary[mac]['latest_timestamp']:
+                                mac_summary[mac]['latest_timestamp'] = timestamp
+                    except (ValueError, TypeError):
+                        # 忽略無效的頻道值
+                        continue
+            
+            # 轉換為列表格式
+            result = []
+            for mac, info in mac_summary.items():
+                result.append({
+                    'mac_id': mac,
+                    'channels': sorted(list(info['channels'])),
+                    'channel_count': len(info['channels']),
+                    'latest_timestamp': info['latest_timestamp'],
+                    'total_records': info['total_records']
+                })
+            
+            # 按 MAC ID 排序
+            result.sort(key=lambda x: x['mac_id'])
+            
+            return jsonify({
+                'success': True,
+                'mac_channels': result,
+                'total_mac_ids': len(result)
+            })
+        
+    except Exception as e:
+        logging.exception(f'獲取MAC通道資訊時發生錯誤: {str(e)}')
+        return jsonify({
+            'success': False,
+            'message': f'獲取MAC通道資訊時發生錯誤: {str(e)}'
         }), 500

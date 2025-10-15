@@ -4,27 +4,11 @@ H100 Dashboard 整合應用程式
 使用 MVC 架構和 Flask 工廠模式重構版本
 """
 
-# 修復 charset_normalizer 循環導入問題
+# 忽略 charset_normalizer 問題 - 這是一個已知的非關鍵依賴問題
+import warnings
+warnings.filterwarnings("ignore", message=".*charset_normalizer.*")
+
 import sys
-
-def fix_charset_normalizer():
-    """修復 charset_normalizer 循環導入問題的函數"""
-    try:
-        # 清理可能存在問題的模組
-        modules_to_clean = ['charset_normalizer', 'urllib3', 'requests', 'certifi', 'idna']
-        for module in modules_to_clean:
-            if module in sys.modules:
-                del sys.modules[module]
-        
-        # 嘗試重新導入
-        import charset_normalizer
-        return True
-    except Exception as e:
-        print(f"警告: charset_normalizer 修復失敗: {e}")
-        return False
-
-# 執行修復
-fix_charset_normalizer()
 
 import os
 import logging

@@ -50,8 +50,8 @@ class UARTReader:
         # 初始化時載入歷史數據
         self.load_historical_data()
         
-    def load_historical_data(self, days_back=7):
-        """載入最近幾天的歷史數據到 latest_data"""
+    def load_historical_data(self, days_back=90):
+        """載入最近幾天的歷史數據到 latest_data，如果沒有數據則載入所有可用的歷史數據"""
         try:
             from datetime import datetime, timedelta
             
@@ -67,16 +67,18 @@ class UARTReader:
             start_date = end_date - timedelta(days=days_back)
             
             loaded_data = []
+            available_files = []
             
             # 掃描 History 資料夾中的 CSV 檔案
             for filename in os.listdir(history_dir):
                 if filename.startswith('uart_data_') and filename.endswith('.csv'):
+                    available_files.append(filename)
                     try:
                         # 從檔名提取日期
                         date_str = filename.replace('uart_data_', '').replace('.csv', '')
                         file_date = datetime.strptime(date_str, '%Y%m%d')
                         
-                        # 只載入指定範圍內的數據
+                        # 只載入指定範圍內的數據，但如果沒有符合範圍的數據則載入所有
                         if start_date <= file_date <= end_date:
                             file_path = os.path.join(history_dir, filename)
                             
@@ -96,6 +98,28 @@ class UARTReader:
                                     
                             logging.info(f"載入歷史數據檔案: {filename}")
                             
+                    except Exception as e:
+                        logging.warning(f"載入檔案 {filename} 時發生錯誤: {e}")
+                        continue
+                        
+            # 如果沒有載入到任何數據，但有歷史檔案，則載入所有檔案
+            if not loaded_data and available_files:
+                logging.info(f"在指定日期範圍內沒有找到數據，載入所有可用的歷史數據 ({len(available_files)} 個檔案)")
+                for filename in available_files:
+                    try:
+                        file_path = os.path.join(history_dir, filename)
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            reader = csv.DictReader(f)
+                            for row in reader:
+                                data_entry = {
+                                    'timestamp': row.get('timestamp', ''),
+                                    'mac_id': row.get('mac_id', 'N/A'),
+                                    'channel': int(row.get('channel', 0)),
+                                    'parameter': float(row.get('parameter', 0.0)),
+                                    'unit': row.get('unit', 'N/A')
+                                }
+                                loaded_data.append(data_entry)
+                        logging.info(f"載入歷史數據檔案: {filename}")
                     except Exception as e:
                         logging.warning(f"載入檔案 {filename} 時發生錯誤: {e}")
                         continue

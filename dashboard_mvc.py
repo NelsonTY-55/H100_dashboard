@@ -14,8 +14,32 @@ Dashboard API 服務 - MVC 架構重構版本
 
 from __future__ import annotations  # 啟用延遲型別註解評估
 
+# === 修正 charset_normalizer 循環導入問題 ===
 import sys
+import warnings
 import os
+
+# 在導入其他模組前，先設置環境變數避免 charset_normalizer 問題
+os.environ.setdefault('PYTHONIOENCODING', 'utf-8')
+
+# 暫時忽略 charset_normalizer 相關的警告
+warnings.filterwarnings('ignore', category=UserWarning, module='charset_normalizer')
+
+# 嘗試修正 charset_normalizer 問題
+try:
+    # 清理可能的問題模組
+    charset_mod_keys = [k for k in sys.modules.keys() if 'charset' in k.lower()]
+    for key in charset_mod_keys:
+        if key in sys.modules:
+            del sys.modules[key]
+    
+    import charset_normalizer
+    # 強制初始化 charset_normalizer
+    getattr(charset_normalizer, '__version__', None)
+except (ImportError, AttributeError) as e:
+    print(f"Warning: charset_normalizer issue ignored: {e}")
+    pass
+
 import logging
 from pathlib import Path
 from flask import Flask
@@ -83,17 +107,6 @@ class SafeImportManager:
             return fallback
         
         try:
-            # 特殊處理 charset_normalizer 的循環導入問題
-            if module_name == 'charset_normalizer':
-                try:
-                    # 清理可能有問題的模組
-                    problematic_modules = ['charset_normalizer', 'urllib3', 'certifi', 'requests', 'idna']
-                    for mod in problematic_modules:
-                        if mod in sys.modules:
-                            del sys.modules[mod]
-                except:
-                    pass
-            
             module = __import__(module_name)
             self.available_modules[module_name] = module
             logger.info(f"Successfully imported {module_name}")
@@ -103,9 +116,9 @@ class SafeImportManager:
             self.failed_imports[module_name] = str(e)
             error_msg = f"Failed to import {module_name}: {e}"
             
-            # 對於 charset_normalizer 的 md__mypyc 錯誤，提供更友好的訊息
-            if 'charset_normalizer' in module_name and 'md__mypyc' in str(e):
-                error_msg += " (這是已知的 Windows 兼容性問題，不影響核心功能)"
+            # 對於 charset_normalizer 或其他非關鍵模組，提供友好訊息
+            if module_name in ['charset_normalizer', 'urllib3', 'certifi', 'requests', 'idna']:
+                error_msg += " (這是非關鍵依賴，不影響核心功能)"
             
             logger.warning(error_msg)
             
@@ -174,20 +187,27 @@ def register_error_handlers(app: Flask):
     
     @app.errorhandler(404)
     def not_found(error):
-        return ApiResponseView.error_response("API 端點不存在", 404)
+        return ApiResponseView.error("API 端點不存在", 404)
     
     @app.errorhandler(405)
     def method_not_allowed(error):
-        return ApiResponseView.error_response("HTTP 方法不被允許", 405)
+        return ApiResponseView.error("HTTP 方法不被允許", 405)
     
     @app.errorhandler(429)
     def rate_limit_exceeded(error):
-        return ApiResponseView.error_response("請求過於頻繁", 429)
+        return ApiResponseView.error("請求過於頻繁", 429)
     
     @app.errorhandler(500)
     def internal_error(error):
         logger.error(f"內部伺服器錯誤: {error}")
-        return ApiResponseView.error_response("內部伺服器錯誤", 500)
+        return ApiResponseView.error("內部伺服器錯誤", 500)
+    
+    # 添加 favicon 路由
+    @app.route('/favicon.ico')
+    def favicon():
+        from flask import Response
+        # 返回 204 No Content，表示無內容，避免 404 錯誤
+        return Response(status=204)
     
     # 添加 CORS 支援
     @app.after_request
@@ -205,13 +225,23 @@ def register_blueprints(app: Flask):
         from controllers.dashboard_controller import dashboard_bp
         from controllers.api_controller import api_bp
         from controllers.device_controller import device_bp
+        from controllers.database_controller import database_bp  # 資料庫 API 控制器
         from controllers.integrated_uart_controller import integrated_uart_bp  # 使用整合版 UART 控制器
+        from controllers.integrated_dashboard_controller import integrated_dashboard_bp  # 整合版 Dashboard 控制器
+        from controllers.integrated_device_controller import integrated_device_bp  # 整合版 Device 控制器
+        from controllers.integrated_home_controller import integrated_home_bp  # 整合版 Home 控制器
+        from controllers.realtime_api_controller import realtime_api_bp  # 即時監控 API 控制器
         
         # 註冊 Blueprint
-        app.register_blueprint(dashboard_bp)
+        app.register_blueprint(integrated_home_bp)  # 首頁控制器 (/, /config-summary 等)
+        app.register_blueprint(integrated_dashboard_bp)  # 整合版 Dashboard 控制器 (/dashboard) - 先註冊，避免被舊版覆蓋
+        # app.register_blueprint(dashboard_bp)  # 暫時註解掉舊版 dashboard_bp，避免路由衝突
         app.register_blueprint(api_bp, url_prefix='/api')
         app.register_blueprint(device_bp)
+        app.register_blueprint(database_bp)  # 資料庫 API 控制器 (/api/database/*)
         app.register_blueprint(integrated_uart_bp)  # 整合版 UART 控制器已有完整的 /api/uart 前綴
+        app.register_blueprint(integrated_device_bp)  # 整合版 Device 控制器 (/api/device-settings, /db-setting)
+        app.register_blueprint(realtime_api_bp)  # 即時監控 API (/api/realtime)
         
         logger.info("所有 Blueprint 已註冊")
     except ImportError as e:
@@ -255,6 +285,7 @@ def initialize_components():
     from controllers.dashboard_controller import init_controller as init_dashboard_controller
     from controllers.api_controller import init_controller as init_api_controller
     from controllers.device_controller import init_controller as init_device_controller
+    from controllers.realtime_api_controller import init_realtime_api_controller
     
     # 傳遞必要的組件給控制器
     init_dashboard_controller(
@@ -274,6 +305,13 @@ def initialize_components():
         multi_device_settings_manager
     )
     
+    # 初始化即時監控系統
+    init_realtime_api_controller()
+    
+    # 設置 UART 觸發回調（如果 UART 可用）
+    if uart_reader:
+        _setup_smart_uart_integration(uart_reader, config_manager)
+    
     logger.info("所有組件已初始化")
     
     return {
@@ -284,6 +322,63 @@ def initialize_components():
         'database_manager': database_manager,
         'uart_reader': uart_reader
     }
+
+
+def _setup_smart_uart_integration(uart_reader, config_manager):
+    """設置智能 UART 整合"""
+    try:
+        from services.smart_uart_trigger import get_trigger_manager
+        from services.raspi_api_client import RaspberryPiConfig
+        
+        # 從配置獲取 RAS_pi 設定
+        raspi_config = RaspberryPiConfig(
+            host=config.RASPBERRY_PI_HOST,
+            port=config.RASPBERRY_PI_PORT,
+            timeout=config.REQUEST_TIMEOUT,
+            poll_interval=config_manager.get('realtime_poll_interval', 10)
+        )
+        
+        # 獲取觸發管理器
+        trigger_manager = get_trigger_manager(raspi_config=raspi_config)
+        
+        # 設置 UART 控制回調
+        def uart_start_callback():
+            try:
+                return uart_reader.start_reading()
+            except Exception as e:
+                logger.error(f"UART 啟動回調失敗: {e}")
+                return False
+        
+        def uart_stop_callback():
+            try:
+                return uart_reader.stop_reading()
+            except Exception as e:
+                logger.error(f"UART 停止回調失敗: {e}")
+                return False
+        
+        def uart_status_callback():
+            try:
+                return {
+                    'is_running': uart_reader.is_running,
+                    'data_count': len(getattr(uart_reader, 'data_buffer', [])),
+                    'port': getattr(uart_reader, 'port', None),
+                    'baudrate': getattr(uart_reader, 'baudrate', None)
+                }
+            except Exception as e:
+                logger.error(f"UART 狀態回調失敗: {e}")
+                return {'is_running': False, 'data_count': 0}
+        
+        trigger_manager.set_uart_callbacks(
+            start_callback=uart_start_callback,
+            stop_callback=uart_stop_callback,
+            status_callback=uart_status_callback
+        )
+        
+        logger.info("智能 UART 整合設置完成")
+        
+    except Exception as e:
+        logger.error(f"設置智能 UART 整合失敗: {e}")
+
 
 # 建立 Flask 應用程式
 app = create_app()

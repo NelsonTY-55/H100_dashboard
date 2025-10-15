@@ -13,125 +13,145 @@ def flask_dashboard():
     """Flask Dashboard 主頁面"""
     logging.info(f'訪問Flask Dashboard, remote_addr={request.remote_addr}')
     
-    from device_settings import device_settings_manager
-    from config_manager import config_manager
-    from uart_integrated import uart_reader
-    
-    # 檢查設備設定是否完成
-    if not device_settings_manager.is_configured():
-        logging.info("設備尚未設定，重定向到設定頁面")
-        flash('請先完成設備設定', 'warning')
-        return redirect(url_for('integrated_device.db_setting', redirect='true'))
-    
-    # 檢查是否有安裝 flask-monitoringdashboard
     try:
-        import flask_monitoringdashboard
-        DASHBOARD_AVAILABLE = True
-    except ImportError:
-        DASHBOARD_AVAILABLE = False
-    
-    if DASHBOARD_AVAILABLE:
-        try:
-            # 嘗試重定向到 Flask MonitoringDashboard
-            return redirect('/dashboard/')
-        except Exception as redirect_error:
-            logging.warning(f"重定向到 MonitoringDashboard 失敗: {redirect_error}")
-    
-    # 提供基本的系統監控資訊
-    try:
-        import psutil
-        # 在 Windows 系統上，某些 psutil 功能可能需要特殊處理
-        try:
-            cpu_percent = psutil.cpu_percent(interval=1)
-        except:
-            cpu_percent = 0
-            
-        try:
-            memory_info = psutil.virtual_memory()._asdict()
-        except:
-            memory_info = {'percent': 0, 'total': 0, 'available': 0}
-            
-        try:
-            if os.name == 'nt':  # Windows 系統
-                disk_info = psutil.disk_usage('C:\\')._asdict()
-            else:
-                disk_info = psutil.disk_usage('/')._asdict()
-        except:
-            disk_info = {'percent': 0, 'total': 0, 'free': 0}
-            
-        try:
-            network_info = psutil.net_io_counters()._asdict() if psutil.net_io_counters() else {}
-        except:
-            network_info = {}
-            
-        try:
-            boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S')
-        except:
-            boot_time = 'N/A'
-            
-        system_info = {
-            'cpu_percent': cpu_percent,
-            'memory': memory_info,
-            'disk': disk_info,
-            'network': network_info,
-            'boot_time': boot_time
-        }
-    except ImportError:
-        system_info = {
-            'cpu_percent': 'N/A (需要安裝 psutil)',
-            'memory': {'percent': 0},
-            'disk': {'percent': 0},
-            'network': {},
-            'boot_time': 'N/A'
-        }
-    except Exception as psutil_error:
-        logging.error(f"獲取系統資訊時發生錯誤: {psutil_error}")
-        system_info = {
-            'cpu_percent': 'N/A (系統資訊獲取失敗)',
-            'memory': {'percent': 0},
-            'disk': {'percent': 0},
-            'network': {},
-            'boot_time': 'N/A'
-        }
-    
-    # 應用程式統計
-    try:
-        # 需要從外部定義或導入 current_mode
-        current_mode = {'mode': 'idle'}  # 預設值
+        from device_settings import device_settings_manager
+        from config.config_manager import ConfigManager
+        from uart_integrated import uart_reader
         
-        app_stats = {
-            'uart_running': uart_reader.is_running,
-            'uart_data_count': uart_reader.get_data_count(),
-            'active_protocol': config_manager.get_active_protocol(),
-            'offline_mode': config_manager.get('offline_mode', False),
-            'supported_protocols': config_manager.get_supported_protocols(),
-            'current_mode': current_mode['mode']
-        }
-    except Exception as app_stats_error:
-        logging.error(f"獲取應用程式統計時發生錯誤: {app_stats_error}")
-        app_stats = {
-            'uart_running': False,
-            'uart_data_count': 0,
-            'active_protocol': 'N/A',
-            'offline_mode': True,
-            'supported_protocols': [],
-            'current_mode': 'idle'
-        }
+        # 創建配置管理器實例
+        config_manager = ConfigManager()
+        
+        # 移除設備設定檢查，直接顯示 dashboard
+        # if not device_settings_manager.is_configured():
+        #     logging.info("設備尚未設定，重定向到設定頁面")
+        #     flash('請先完成設備設定', 'warning')
+        #     # 修正重定向目標
+        #     try:
+        #         return redirect('/db-setting')
+        #     except Exception as e:
+        #         logging.error(f"重定向失敗: {e}")
+        #         return render_template('error.html', 
+        #                              error_message="請先完成設備設定", 
+        #                              redirect_url="/db-setting")
+        
+        # 檢查是否有安裝 flask-monitoringdashboard
+        try:
+            import flask_monitoringdashboard
+            DASHBOARD_AVAILABLE = True
+            logging.info("Flask MonitoringDashboard 可用")
+        except ImportError:
+            DASHBOARD_AVAILABLE = False
+            logging.warning("Flask MonitoringDashboard 不可用")
+        
+        # 不重定向到 MonitoringDashboard，直接提供我們的自定義 dashboard
+        # if DASHBOARD_AVAILABLE:
+        #     try:
+        #         # 嘗試重定向到 Flask MonitoringDashboard
+        #         return redirect('/dashboard/')
+        #     except Exception as redirect_error:
+        #         logging.warning(f"重定向到 MonitoringDashboard 失敗: {redirect_error}")
+        
+        # 提供基本的系統監控資訊
+        try:
+            import psutil
+            # 在 Windows 系統上，某些 psutil 功能可能需要特殊處理
+            try:
+                cpu_percent = psutil.cpu_percent(interval=1)
+            except:
+                cpu_percent = 0
+                
+            try:
+                memory_info = psutil.virtual_memory()._asdict()
+            except:
+                memory_info = {'percent': 0, 'total': 0, 'available': 0}
+                
+            try:
+                if os.name == 'nt':  # Windows 系統
+                    disk_info = psutil.disk_usage('C:\\')._asdict()
+                else:
+                    disk_info = psutil.disk_usage('/')._asdict()
+            except:
+                disk_info = {'percent': 0, 'total': 0, 'free': 0}
+                
+            try:
+                network_info = psutil.net_io_counters()._asdict() if psutil.net_io_counters() else {}
+            except:
+                network_info = {}
+                
+            try:
+                boot_time = datetime.fromtimestamp(psutil.boot_time()).strftime('%Y-%m-%d %H:%M:%S')
+            except:
+                boot_time = 'N/A'
+                
+            system_info = {
+                'cpu_percent': cpu_percent,
+                'memory': memory_info,
+                'disk': disk_info,
+                'network': network_info,
+                'boot_time': boot_time
+            }
+        except ImportError:
+            system_info = {
+                'cpu_percent': 'N/A (需要安裝 psutil)',
+                'memory': {'percent': 0},
+                'disk': {'percent': 0},
+                'network': {},
+                'boot_time': 'N/A'
+            }
+        except Exception as psutil_error:
+            logging.error(f"獲取系統資訊時發生錯誤: {psutil_error}")
+            system_info = {
+                'cpu_percent': 'N/A (系統資訊獲取失敗)',
+                'memory': {'percent': 0},
+                'disk': {'percent': 0},
+                'network': {},
+                'boot_time': 'N/A'
+            }
+        
+        # 應用程式統計
+        try:
+            # 需要從外部定義或導入 current_mode
+            current_mode = {'mode': 'idle'}  # 預設值
+            
+            app_stats = {
+                'uart_running': uart_reader.is_running,
+                'uart_data_count': uart_reader.get_data_count(),
+                'active_protocol': config_manager.get_active_protocol(),
+                'offline_mode': config_manager.get('offline_mode', False),
+                'supported_protocols': config_manager.get_supported_protocols(),
+                'current_mode': current_mode['mode']
+            }
+        except Exception as app_stats_error:
+            logging.error(f"獲取應用程式統計時發生錯誤: {app_stats_error}")
+            app_stats = {
+                'uart_running': False,
+                'uart_data_count': 0,
+                'active_protocol': 'N/A',
+                'offline_mode': True,
+                'supported_protocols': [],
+                'current_mode': 'idle'
+            }
+        
+        # 載入設備設定
+        try:
+            device_settings = device_settings_manager.load_settings()
+        except Exception as device_error:
+            logging.error(f"載入設備設定時發生錯誤: {device_error}")
+            device_settings = {
+                'device_name': '未設定設備',
+                'device_location': '',
+                'device_model': '',
+                'device_serial': '',
+                'device_description': '',
+                'created_at': None,
+                'updated_at': None
+            }
     
-    # 載入設備設定
-    try:
-        device_settings = device_settings_manager.load_settings()
-    except Exception as device_error:
-        logging.error(f"載入設備設定時發生錯誤: {device_error}")
-        device_settings = {
-            'device_name': '未設定設備',
-            'device_location': '',
-            'device_model': '',
-            'device_serial': '',
-            'device_description': '',
-            'created_at': None,
-            'updated_at': None
-        }
+    except Exception as main_error:
+        logging.error(f"Dashboard 主函數發生錯誤: {main_error}")
+        # 提供緊急回退
+        return render_template('error.html', 
+                             error_message=f"Dashboard 載入失敗: {main_error}")
     
     return render_template('dashboard.html', 
                          system_info=system_info,
@@ -177,7 +197,10 @@ def dashboard_stats():
         
         # 應用程式統計
         from uart_integrated import uart_reader
-        from config_manager import config_manager
+        from config.config_manager import ConfigManager
+        
+        # 創建配置管理器實例
+        config_manager = ConfigManager()
         
         # 需要從外部定義或導入 offline_mode_manager
         try:
