@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>離線資源測試頁面</title>
+    <!-- 本地 CSS 資源 -->
+    <link href="/static/css/vendor/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/fontawesome.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/animate.min.css" rel="stylesheet">
+    <style>
+        .test-container {
+            padding: 2rem;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .resource-test {
+            margin: 1rem 0;
+            padding: 1rem;
+            border: 1px solid #dee2e6;
+            border-radius: 0.375rem;
+        }
+        .success {
+            border-color: #198754;
+            background-color: #d1e7dd;
+        }
+        .test-icon {
+            font-size: 2rem;
+            margin: 0.5rem;
+        }
+        .test-button {
+            margin: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h1 class="text-center mb-4">
+            <i class="fas fa-check-circle text-success"></i>
+            離線資源測試頁面
+        </h1>
+        
+        <!-- Bootstrap 測試 -->
+        <div class="resource-test success">
+            <h3><i class="fas fa-code"></i> Bootstrap CSS/JS 測試</h3>
+            <p>如果你看到下面的按鈕和卡片樣式正常顯示，表示 Bootstrap 載入成功：</p>
+            <button type="button" class="btn btn-primary test-button">Primary</button>
+            <button type="button" class="btn btn-success test-button">Success</button>
+            <button type="button" class="btn btn-danger test-button">Danger</button>
+            <button type="button" class="btn btn-warning test-button">Warning</button>
+            <button type="button" class="btn btn-info test-button">Info</button>
+            
+            <div class="card mt-3" style="width: 18rem;">
+                <div class="card-body">
+                    <h5 class="card-title">測試卡片</h5>
+                    <p class="card-text">這是一個 Bootstrap 卡片組件測試。</p>
+                    <a href="#" class="btn btn-primary">測試按鈕</a>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Font Awesome 測試 -->
+        <div class="resource-test success">
+            <h3><i class="fas fa-icons"></i> Font Awesome 圖標測試</h3>
+            <p>如果你看到下面的圖標正常顯示，表示 Font Awesome 載入成功：</p>
+            <div>
+                <!-- 實心圖標 -->
+                <i class="fas fa-home test-icon text-primary" title="首頁"></i>
+                <i class="fas fa-user test-icon text-success" title="用戶"></i>
+                <i class="fas fa-cog test-icon text-warning" title="設定"></i>
+                <i class="fas fa-chart-bar test-icon text-info" title="圖表"></i>
+                <i class="fas fa-wifi test-icon text-primary" title="WiFi"></i>
+                
+                <!-- 常規圖標 -->
+                <i class="far fa-heart test-icon text-danger" title="心形"></i>
+                <i class="far fa-star test-icon text-warning" title="星星"></i>
+                <i class="far fa-file test-icon text-secondary" title="檔案"></i>
+                
+                <!-- 品牌圖標 -->
+                <i class="fab fa-github test-icon text-dark" title="GitHub"></i>
+                <i class="fab fa-twitter test-icon text-info" title="Twitter"></i>
+            </div>
+        </div>
+        
+        <!-- 動畫測試 -->
+        <div class="resource-test success">
+            <h3><i class="fas fa-magic"></i> Animate.css 動畫測試</h3>
+            <p>如果你看到下面的元素有動畫效果，表示 Animate.css 載入成功：</p>
+            <div class="text-center">
+                <span class="badge bg-primary animate__animated animate__bounce animate__infinite">跳躍動畫</span>
+                <span class="badge bg-success animate__animated animate__pulse animate__infinite">脈衝動畫</span>
+                <span class="badge bg-warning animate__animated animate__heartBeat animate__infinite">心跳動畫</span>
+            </div>
+        </div>
+        
+        <!-- Chart.js 測試 -->
+        <div class="resource-test success">
+            <h3><i class="fas fa-chart-line"></i> Chart.js 測試</h3>
+            <p>Chart.js 測試圖表：</p>
+            <canvas id="testChart" width="400" height="200"></canvas>
+        </div>
+        
+        <!-- 字型載入測試 -->
+        <div class="resource-test success">
+            <h3><i class="fas fa-font"></i> 字型載入測試</h3>
+            <p>各種字型和編碼測試：</p>
+            <ul>
+                <li>中文字符：你好世界！資料監控系統</li>
+                <li>英文字符：Hello World! Data Monitoring System</li>
+                <li>數字和符號：1234567890 !@#$%^&*()</li>
+                <li>特殊符號：→←↑↓⇒⇐⇑⇓</li>
+            </ul>
+        </div>
+        
+        <div class="text-center mt-4">
+            <div class="alert alert-success" role="alert">
+                <h4 class="alert-heading">
+                    <i class="fas fa-check-circle"></i> 測試完成！
+                </h4>
+                <p>如果上述所有項目都正常顯示，說明離線資源配置成功！</p>
+                <hr>
+                <p class="mb-0">
+                    <a href="/" class="btn btn-primary">
+                        <i class="fas fa-home"></i> 返回首頁
+                    </a>
+                </p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 本地 JavaScript 資源 -->
+    <script src="/static/js/vendor/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/vendor/chart.min.js"></script>
+    
+    <script>
+        // Chart.js 測試
+        document.addEventListener('DOMContentLoaded', function() {
+            const ctx = document.getElementById('testChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: ['1月', '2月', '3月', '4月', '5月', '6月'],
+                    datasets: [{
+                        label: '測試數據',
+                        data: [12, 19, 3, 5, 2, 3],
+                        borderColor: 'rgb(75, 192, 192)',
+                        backgroundColor: 'rgba(75, 192, 192, 0.2)',
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        title: {
+                            display: true,
+                            text: 'Chart.js 載入測試'
+                        }
+                    }
+                }
+            });
+        });
+        
+        // Bootstrap JavaScript 測試
+        console.log('Bootstrap version:', typeof bootstrap !== 'undefined' ? 'Loaded' : 'Not loaded');
+        console.log('Chart.js version:', typeof Chart !== 'undefined' ? 'Loaded' : 'Not loaded');
+        
+        // 檢查字型載入
+        document.fonts.ready.then(function() {
+            console.log('All fonts loaded successfully');
+        });
+    </script>
+</body>
+</html>

@@ -37,7 +37,7 @@
         }
 
         .filter-card .card-header {
-            background: var(--primary-gradient);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 1rem 1.5rem;
             border: none;
@@ -96,6 +96,12 @@
         .filter-card .btn-secondary:hover {
             background: #5a6268;
             transform: translateY(-1px);
+        }
+
+        /* 漸變頭部樣式 */
+        .gradient-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            border: none;
         }
 
         .stat-card {
@@ -332,7 +338,7 @@
         }
 
         .card-header {
-            background: var(--primary-gradient);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 1.5rem;
             border: none;
@@ -933,7 +939,7 @@
         }
 
         .filter-card .card-header {
-            background: var(--primary-gradient);
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             padding: 1rem 1.5rem;
             border: none;
@@ -1098,7 +1104,7 @@
     </div>
 
     <!-- Side Navigation -->
-    <div id="sidebar" class="sidebar-collapsible bg-primary text-white position-fixed h-100">
+    <div id="sidebar" class="sidebar-collapsible text-white position-fixed h-100">
         <div class="sidebar-header d-flex align-items-center justify-content-between px-3 py-3">
             <div class="d-flex align-items-center">
                 <span class="sidebar-logo d-flex align-items-center justify-content-center me-2">
@@ -1150,10 +1156,10 @@
             left: 0;
             top: 0;
             z-index: 1040;
-            background: #2563eb;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: #fff;
             transition: width 0.3s cubic-bezier(.4,0,.2,1);
-            box-shadow: 2px 0 10px rgba(0,0,0,0.04);
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
         }
         
         .sidebar-collapsible.collapsed {
@@ -1161,14 +1167,14 @@
         }
         
         .sidebar-collapsible .sidebar-header {
-            background: #1e40af;
-            border-bottom: 1px solid #3b82f6;
+            background: rgba(0,0,0,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
         }
         
         .sidebar-collapsible .sidebar-logo {
             width: 36px;
             height: 36px;
-            background: rgba(255,255,255,0.08);
+            background: rgba(255,255,255,0.15);
             border-radius: 10px;
             font-size: 1.3rem;
         }
@@ -1187,18 +1193,19 @@
         }
         
         .sidebar-collapsible .nav-link {
-            color: #fff !important;
+            color: rgba(255,255,255,0.9) !important;
             font-weight: 500;
             padding: 0.75rem 1.5rem;
             border-radius: 0 30px 30px 0;
             margin-bottom: 0.2rem;
-            transition: background 0.2s, color 0.2s;
+            transition: all 0.2s ease;
         }
         
         .sidebar-collapsible .nav-link.active, 
         .sidebar-collapsible .nav-link:hover {
-            background: linear-gradient(90deg, #60a5fa 0%, #818cf8 100%);
+            background: rgba(255,255,255,0.1);
             color: #fff !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
         .sidebar-collapsible .nav-link i {
@@ -1503,9 +1510,9 @@
         <div class="row" id="currentDataSection" style="display: none;">
             <div class="col-12">
                 <div class="card">
-                    <div class="card-header bg-primary text-white">
+                    <div class="card-header gradient-header text-white">
                         <h5 class="mb-0">
-                            <i class="fas fa-chart-area me-2"></i>電流監控數據
+                            <i class="fas fa-chart-area me-2"></i>設備連線狀態資料概覽
                         </h5>
                     </div>
                     <div class="card-body">

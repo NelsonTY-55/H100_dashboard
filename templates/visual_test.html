@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>H100 Dashboard - 視覺測試</title>
+    <link href="/static/css/vendor/bootstrap.min.css" rel="stylesheet">
+    <link href="/static/css/vendor/fontawesome.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            padding-left: 220px;
+        }
+
+        /* 側邊欄樣式 */
+        .sidebar-collapsible {
+            width: 220px;
+            left: 0;
+            top: 0;
+            z-index: 1040;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #fff;
+            box-shadow: 2px 0 10px rgba(0,0,0,0.1);
+            position: fixed;
+            height: 100vh;
+        }
+        
+        .sidebar-header {
+            background: rgba(0,0,0,0.1);
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding: 1rem;
+        }
+        
+        .sidebar-logo {
+            width: 36px;
+            height: 36px;
+            background: rgba(255,255,255,0.15);
+            border-radius: 10px;
+            font-size: 1.3rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-right: 0.5rem;
+        }
+        
+        .sidebar-title {
+            font-size: 1.15rem;
+            font-weight: bold;
+        }
+        
+        .nav-link {
+            color: rgba(255,255,255,0.9) !important;
+            font-weight: 500;
+            padding: 0.75rem 1.5rem;
+            margin-bottom: 0.2rem;
+            transition: all 0.2s ease;
+        }
+        
+        .nav-link.active, 
+        .nav-link:hover {
+            background: rgba(255,255,255,0.1);
+            color: #fff !important;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        /* 頂部漸變區域 */
+        .dashboard-header {
+            background: var(--primary-gradient);
+            color: white;
+            padding: 2rem 0;
+            margin-bottom: 2rem;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+
+        .header-title {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin: 0;
+        }
+
+        .header-subtitle {
+            font-size: 1.1rem;
+            opacity: 0.9;
+            margin-top: 0.5rem;
+        }
+
+        /* 底部藍色區域 */
+        .gradient-header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+            border: none;
+            padding: 1rem 1.5rem;
+        }
+
+        .card {
+            border: none;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        /* 主內容區域 */
+        .main-content {
+            padding: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- 側邊欄 -->
+    <div class="sidebar-collapsible">
+        <div class="sidebar-header d-flex align-items-center">
+            <span class="sidebar-logo">
+                <i class="fas fa-columns"></i>
+            </span>
+            <span class="sidebar-title">H100 Dashboard</span>
+        </div>
+        <ul class="nav flex-column pt-2">
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/">
+                    <i class="fas fa-home me-2"></i>首頁
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white active" href="/dashboard">
+                    <i class="fas fa-tachometer-alt me-2"></i>監控中心
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/device_settings">
+                    <i class="fas fa-cog me-2"></i>設備機台設定
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/11">
+                    <i class="fas fa-chart-area me-2"></i>儀錶板總覽
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/config_summary">
+                    <i class="fas fa-list-alt me-2"></i>配置摘要
+                </a>
+            </li>
+            <li class="nav-item">
+                <a class="nav-link d-flex align-items-center text-white" href="/wifi">
+                    <i class="fas fa-wifi me-2"></i>樹莓派連接
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <!-- 主內容區域 -->
+    <div class="main-content">
+        <!-- 頂部漸變標題區域 -->
+        <div class="dashboard-header">
+            <div class="container">
+                <div class="row align-items-center">
+                    <div class="col-lg-8">
+                        <h1 class="header-title mb-0">
+                            <i class="fas fa-tachometer-alt me-3"></i>
+                            系統監控中心
+                        </h1>
+                        <p class="header-subtitle mb-0">
+                            <i class="fas fa-clock me-2"></i>
+                            即時監控與數據分析 - 2025/10/15 下午1:37:15
+                        </p>
+                    </div>
+                    <div class="col-lg-4 text-end">
+                        <div class="d-flex justify-content-end align-items-center">
+                            <div class="me-3">
+                                <div class="status-indicator">
+                                    <i class="fas fa-circle me-2" style="color: #28a745;"></i>
+                                    系統運行中
+                                </div>
+                            </div>
+                            <button class="btn btn-light">
+                                <i class="fas fa-sync-alt me-2"></i>重新整理
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 設備選擇器 -->
+        <div class="card">
+            <div class="card-header" style="background: var(--primary-gradient); color: white;">
+                <h5 class="mb-0">
+                    <i class="fas fa-filter me-2"></i>設備選擇與資料篩選
+                </h5>
+            </div>
+            <div class="card-body">
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <label class="form-label">
+                            <i class="fas fa-tag me-1"></i>廠區
+                        </label>
+                        <select class="form-select">
+                            <option value="">載入中...</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">
+                            <i class="fas fa-map-marker-alt me-1"></i>設備位置
+                        </label>
+                        <select class="form-select" disabled>
+                            <option value="">請先選擇廠區</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">
+                            <i class="fas fa-barcode me-1"></i>設備序號 (MAC ID)
+                        </label>
+                        <select class="form-select" disabled>
+                            <option value="">請先選擇設備位置</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label class="form-label">
+                            <i class="fas fa-align-left me-1"></i>設備描述
+                        </label>
+                        <select class="form-select" disabled>
+                            <option value="">請先選擇設備序號</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部藍色區域 -->
+        <div class="card">
+            <div class="gradient-header text-white">
+                <h5 class="mb-0">
+                    <i class="fas fa-chart-area me-2"></i>設備連線狀態資料概覽
+                </h5>
+            </div>
+            <div class="card-body">
+                <p class="text-muted">設備連線狀態和數據概覽將在這裡顯示...</p>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
