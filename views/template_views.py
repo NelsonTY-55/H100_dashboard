@@ -4,7 +4,7 @@
 """
 
 from flask import render_template, request, session, flash
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 import logging
 
 
@@ -155,7 +155,7 @@ class FormView:
     """表單視圖類"""
     
     @staticmethod
-    def validate_device_form(form_data: Dict) -> tuple[bool, list]:
+    def validate_device_form(form_data: Dict) -> Tuple[bool, list]:
         """驗證設備表單"""
         errors = []
         
@@ -178,7 +178,7 @@ class FormView:
         return len(errors) == 0, errors
     
     @staticmethod
-    def validate_config_form(form_data: Dict) -> tuple[bool, list]:
+    def validate_config_form(form_data: Dict) -> Tuple[bool, list]:
         """驗證配置表單"""
         errors = []
         
@@ -210,7 +210,7 @@ class FormView:
         return len(errors) == 0, errors
     
     @staticmethod
-    def validate_wifi_form(form_data: Dict) -> tuple[bool, list]:
+    def validate_wifi_form(form_data: Dict) -> Tuple[bool, list]:
         """驗證WiFi表單"""
         errors = []
         

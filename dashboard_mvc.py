@@ -12,6 +12,8 @@ Dashboard API 服務 - MVC 架構重構版本
 - 統一配置管理
 """
 
+from __future__ import annotations  # 啟用延遲型別註解評估
+
 import sys
 import os
 import logging
@@ -81,14 +83,31 @@ class SafeImportManager:
             return fallback
         
         try:
+            # 特殊處理 charset_normalizer 的循環導入問題
+            if module_name == 'charset_normalizer':
+                try:
+                    # 清理可能有問題的模組
+                    problematic_modules = ['charset_normalizer', 'urllib3', 'certifi', 'requests', 'idna']
+                    for mod in problematic_modules:
+                        if mod in sys.modules:
+                            del sys.modules[mod]
+                except:
+                    pass
+            
             module = __import__(module_name)
             self.available_modules[module_name] = module
             logger.info(f"Successfully imported {module_name}")
             return module
             
-        except ImportError as e:
+        except (ImportError, AttributeError) as e:
             self.failed_imports[module_name] = str(e)
-            logger.warning(f"Failed to import {module_name}: {e}")
+            error_msg = f"Failed to import {module_name}: {e}"
+            
+            # 對於 charset_normalizer 的 md__mypyc 錯誤，提供更友好的訊息
+            if 'charset_normalizer' in module_name and 'md__mypyc' in str(e):
+                error_msg += " (這是已知的 Windows 兼容性問題，不影響核心功能)"
+            
+            logger.warning(error_msg)
             
             if required:
                 raise ImportError(f"Required module '{module_name}' is not available: {e}")
@@ -186,11 +205,13 @@ def register_blueprints(app: Flask):
         from controllers.dashboard_controller import dashboard_bp
         from controllers.api_controller import api_bp
         from controllers.device_controller import device_bp
+        from controllers.integrated_uart_controller import integrated_uart_bp  # 使用整合版 UART 控制器
         
         # 註冊 Blueprint
         app.register_blueprint(dashboard_bp)
         app.register_blueprint(api_bp, url_prefix='/api')
         app.register_blueprint(device_bp)
+        app.register_blueprint(integrated_uart_bp)  # 整合版 UART 控制器已有完整的 /api/uart 前綴
         
         logger.info("所有 Blueprint 已註冊")
     except ImportError as e:
@@ -271,36 +292,71 @@ app = create_app()
 def main():
     """主程式入口"""
     try:
-        # 顯示啟動資訊
+        # Windows 控制台 UTF-8 支援（更安全的方式）
+        if os.name == 'nt':
+            try:
+                os.system('chcp 65001 > nul')  # 設定控制台為 UTF-8
+            except:
+                pass
+        
+        # 顯示啟動資訊（使用安全的字符）
         print("=" * 60)
-        print("🚀 H100 Dashboard API 服務啟動中 (MVC 架構)...")
+        try:
+            print("🚀 H100 Dashboard API 服務啟動中 (MVC 架構)...")
+        except UnicodeEncodeError:
+            print(">>> H100 Dashboard API 服務啟動中 (MVC 架構)...")
         print("=" * 60)
         
         # 初始化組件
         components = initialize_components()
         
         # 顯示配置資訊
-        print(f"🏠 運行模式: {'獨立模式' if config.STANDALONE_MODE else '本地模式'}")
-        print(f"🌐 監聽地址: {config.HOST}:{config.PORT}")
-        print(f"🔧 調試模式: {'啟用' if config.DEBUG else '停用'}")
+        try:
+            print(f"🏠 運行模式: {'獨立模式' if config.STANDALONE_MODE else '本地模式'}")
+        except UnicodeEncodeError:
+            print(f"運行模式: {'獨立模式' if config.STANDALONE_MODE else '本地模式'}")
+            
+        try:
+            print(f"🌐 監聽地址: {config.HOST}:{config.PORT}")
+        except UnicodeEncodeError:
+            print(f"監聽地址: {config.HOST}:{config.PORT}")
+            
+        try:
+            print(f"🔧 調試模式: {'啟用' if config.DEBUG else '停用'}")
+        except UnicodeEncodeError:
+            print(f"調試模式: {'啟用' if config.DEBUG else '停用'}")
         
         if config.STANDALONE_MODE:
-            print(f"🔗 樹莓派地址: {config.RASPBERRY_PI_HOST}:{config.RASPBERRY_PI_PORT}")
+            try:
+                print(f"🔗 樹莓派地址: {config.RASPBERRY_PI_HOST}:{config.RASPBERRY_PI_PORT}")
+            except UnicodeEncodeError:
+                print(f"樹莓派地址: {config.RASPBERRY_PI_HOST}:{config.RASPBERRY_PI_PORT}")
         
         # 顯示可用模組狀態
-        print(f"📦 Requests: {'✓' if import_manager.is_available('requests') else '✗'}")
-        print(f"📦 psutil: {'✓' if import_manager.is_available('psutil') else '✗'}")
-        print(f"📦 資料庫: {'✓' if DATABASE_AVAILABLE else '✗'}")
+        try:
+            print(f"📦 Requests: {'✓' if import_manager.is_available('requests') else '✗'}")
+            print(f"📦 psutil: {'✓' if import_manager.is_available('psutil') else '✗'}")
+            print(f"📦 資料庫: {'✓' if DATABASE_AVAILABLE else '✗'}")
+        except UnicodeEncodeError:
+            print(f"Requests: {'YES' if import_manager.is_available('requests') else 'NO'}")
+            print(f"psutil: {'YES' if import_manager.is_available('psutil') else 'NO'}")
+            print(f"資料庫: {'YES' if DATABASE_AVAILABLE else 'NO'}")
         
         # 顯示 API 端點
-        print("\n🌐 可用的 API 端點:")
+        try:
+            print("\n🌐 可用的 API 端點:")
+        except UnicodeEncodeError:
+            print("\n可用的 API 端點:")
         print(f"  - 健康檢查: http://localhost:{config.PORT}/api/health")
         print(f"  - 系統狀態: http://localhost:{config.PORT}/api/status")
         print(f"  - Dashboard: http://localhost:{config.PORT}/dashboard")
         print(f"  - 設備設定: http://localhost:{config.PORT}/db-setting")
         
         print("\n" + "=" * 60)
-        print("🎉 Dashboard API 服務已啟動 (MVC 架構)!")
+        try:
+            print("🎉 Dashboard API 服務已啟動 (MVC 架構)!")
+        except UnicodeEncodeError:
+            print("Dashboard API 服務已啟動 (MVC 架構)!")
         print("=" * 60)
         
         # 啟動 Flask 應用程式
@@ -313,10 +369,16 @@ def main():
         
     except KeyboardInterrupt:
         logger.info("接收到中斷信號，正在關閉服務...")
-        print("\n👋 Dashboard API 服務已停止")
+        try:
+            print("\n👋 Dashboard API 服務已停止")
+        except UnicodeEncodeError:
+            print("\nDashboard API 服務已停止")
     except Exception as e:
         logger.error(f"啟動服務時發生錯誤: {str(e)}")
-        print(f"❌ 啟動失敗: {str(e)}")
+        try:
+            print(f"❌ 啟動失敗: {str(e)}")
+        except UnicodeEncodeError:
+            print(f"啟動失敗: {str(e)}")
         sys.exit(1)
 
 if __name__ == '__main__':

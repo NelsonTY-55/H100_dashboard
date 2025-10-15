@@ -9,7 +9,7 @@ import logging
 import threading
 import time
 from datetime import datetime
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Tuple
 import json
 
 class MultiProtocolManager:
@@ -62,7 +62,7 @@ class MultiProtocolManager:
             }
         return protocols
     
-    def start_protocol(self, protocol: str) -> tuple[bool, str]:
+    def start_protocol(self, protocol: str) -> Tuple[bool, str]:
         """啟動指定的協定"""
         try:
             with self.lock:
@@ -107,7 +107,7 @@ class MultiProtocolManager:
             
             return False, error_msg
     
-    def stop_protocol(self, protocol: str) -> tuple[bool, str]:
+    def stop_protocol(self, protocol: str) -> Tuple[bool, str]:
         """停止指定的協定"""
         try:
             with self.lock:
